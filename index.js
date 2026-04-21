@@ -35,6 +35,7 @@ app.post('/voice', upload.single('file'), async (req, res) => {
     res.json({ text: transcription.text });
   } catch (error) {
     console.error('OPENAI ERROR:', error);
+
     res.status(500).json({
       error: 'Something went wrong',
       details: error?.message || 'Unknown error',
