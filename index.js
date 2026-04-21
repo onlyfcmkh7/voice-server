@@ -78,10 +78,10 @@ app.post('/chat', async (req, res) => {
     }
 
     const response = await openai.responses.create({
-      model: 'gpt-5',
+      model: 'gpt-5.4',
       input: [
         {
-          role: 'developer',
+          role: 'system',
           content:
             'Ти корисний голосовий помічник. Відповідай коротко, природно, українською мовою.',
         },
@@ -100,6 +100,34 @@ app.post('/chat', async (req, res) => {
 
     res.status(500).json({
       error: 'Chat failed',
+      details: error?.message || 'Unknown error',
+    });
+  }
+});
+
+app.post('/tts', async (req, res) => {
+  try {
+    const { text } = req.body || {};
+
+    if (!text || !text.trim()) {
+      return res.status(400).json({ error: 'Text is required' });
+    }
+
+    const speech = await openai.audio.speech.create({
+      model: 'gpt-4o-mini-tts',
+      voice: 'marin',
+      input: text,
+    });
+
+    const buffer = Buffer.from(await speech.arrayBuffer());
+
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.send(buffer);
+  } catch (error) {
+    console.error('TTS ERROR:', error);
+
+    res.status(500).json({
+      error: 'TTS failed',
       details: error?.message || 'Unknown error',
     });
   }
