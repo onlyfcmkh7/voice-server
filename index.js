@@ -10,28 +10,57 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+app.get("/", (req, res) => {
+  res.send("Voice server is running");
+});
+
 app.post("/voice", upload.single("audio"), async (req, res) => {
+  let uploadedPath = null;
+
   try {
-    // 1. Розпізнаємо голос
+    if (!req.file) {
+      return res.status(400).json({
+        error: true,
+        message: "Audio file not provided",
+      });
+    }
+
+    uploadedPath = req.file.path;
+
+    console.log("File received:");
+    console.log("path:", req.file.path);
+    console.log("name:", req.file.originalname);
+    console.log("mimetype:", req.file.mimetype);
+    console.log("size:", req.file.size);
+
+    // 1. Розпізнавання голосу
     const transcription = await openai.audio.transcriptions.create({
       file: fs.createReadStream(req.file.path),
       model: "gpt-4o-mini-transcribe",
     });
 
-    const text = transcription.text;
+    const text = transcription.text || "";
+    console.log("Transcription:", text);
 
-    // 2. Генеруємо відповідь
+    // 2. Генерація відповіді
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: "Ти голосовий асистент." },
-        { role: "user", content: text },
+        {
+          role: "system",
+          content: "Ти голосовий асистент. Відповідай коротко, дружньо і українською мовою.",
+        },
+        {
+          role: "user",
+          content: text,
+        },
       ],
     });
 
-    const reply = response.choices[0].message.content;
+    const reply = response.choices?.[0]?.message?.content || "Не вдалося сформувати відповідь.";
+    console.log("Reply:", reply);
 
-    // 3. Озвучуємо
+    // 3. Озвучка
     const speech = await openai.audio.speech.create({
       model: "gpt-4o-mini-tts",
       voice: "alloy",
@@ -42,17 +71,32 @@ app.post("/voice", upload.single("audio"), async (req, res) => {
 
     res.set({
       "Content-Type": "audio/mpeg",
+      "Content-Length": audioBuffer.length,
     });
 
     res.send(audioBuffer);
-
-    fs.unlinkSync(req.file.path);
   } catch (err) {
+    console.error("VOICE ERROR:");
     console.error(err);
-    res.status(500).send("Error");
+
+    res.status(500).json({
+      error: true,
+      message: err.message || "Unknown server error",
+      cause: err.cause?.code || null,
+    });
+  } finally {
+    if (uploadedPath && fs.existsSync(uploadedPath)) {
+      try {
+        fs.unlinkSync(uploadedPath);
+      } catch (deleteError) {
+        console.error("Failed to delete temp file:", deleteError);
+      }
+    }
   }
 });
 
-app.listen(3000, () => {
-  console.log("Server running on port 3000");
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
