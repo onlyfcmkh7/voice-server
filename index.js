@@ -10,17 +10,22 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// Health check / root
 app.get('/', (req, res) => {
   res.status(200).send('Server is working ✅');
 });
 
-// Voice transcription
 app.post('/voice', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
+
+    console.log('FILE INFO:', {
+      originalname: req.file.originalname,
+      mimetype: req.file.mimetype,
+      path: req.file.path,
+      size: req.file.size,
+    });
 
     const transcription = await openai.audio.transcriptions.create({
       file: fs.createReadStream(req.file.path),
@@ -29,24 +34,19 @@ app.post('/voice', upload.single('file'), async (req, res) => {
 
     res.json({ text: transcription.text });
   } catch (error) {
-    console.error('VOICE ERROR:', error);
+    console.error('OPENAI ERROR:', error);
     res.status(500).json({
       error: 'Something went wrong',
       details: error?.message || 'Unknown error',
     });
   } finally {
-    // чистимо тимчасовий файл після обробки
     if (req.file?.path) {
-      fs.unlink(req.file.path, (err) => {
-        if (err) {
-          console.error('Failed to delete temp file:', err.message);
-        }
-      });
+      fs.unlink(req.file.path, () => {});
     }
   }
 });
 
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
