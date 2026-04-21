@@ -6,41 +6,48 @@ import OpenAI from "openai";
 const app = express();
 const upload = multer({ dest: "uploads/" });
 
+// 🔑 OpenAI
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// ТЕСТОВИЙ РУТ (щоб перевірити що сервер живий)
+// ✅ ТЕСТ (щоб перевірити що сервер живий)
 app.get("/", (req, res) => {
-  res.send("Server is working 🚀");
+  res.send("OK");
 });
 
+// 🎤 ГОЛОС
 app.post("/voice", upload.single("audio"), async (req, res) => {
   try {
-    console.log("VOICE REQUEST RECEIVED");
+    console.log("➡️ REQUEST RECEIVED");
 
-    // 1. Розпізнаємо голос
+    if (!req.file) {
+      console.log("❌ NO FILE");
+      return res.status(400).send("No file");
+    }
+
+    // 1️⃣ Speech → Text
     const transcription = await openai.audio.transcriptions.create({
       file: fs.createReadStream(req.file.path),
       model: "gpt-4o-mini-transcribe",
     });
 
-    console.log("TEXT:", transcription.text);
+    const text = transcription.text;
+    console.log("📝 TEXT:", text);
 
-    // 2. Генеруємо відповідь
-    const response = await openai.chat.completions.create({
+    // 2️⃣ GPT
+    const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         { role: "system", content: "Ти голосовий асистент." },
-        { role: "user", content: transcription.text },
+        { role: "user", content: text },
       ],
     });
 
-    const reply = response.choices[0].message.content;
+    const reply = completion.choices[0].message.content;
+    console.log("🤖 REPLY:", reply);
 
-    console.log("REPLY:", reply);
-
-    // 3. Озвучуємо
+    // 3️⃣ Text → Speech
     const speech = await openai.audio.speech.create({
       model: "gpt-4o-mini-tts",
       voice: "alloy",
@@ -55,16 +62,18 @@ app.post("/voice", upload.single("audio"), async (req, res) => {
 
     res.send(audioBuffer);
 
+    // 🧹 очищаємо файл
     fs.unlinkSync(req.file.path);
+
   } catch (err) {
-    console.error("ERROR:", err);
-    res.status(500).send("SERVER ERROR");
+    console.error("🔥 ERROR:", err);
+    res.status(500).send(err.message || "Server error");
   }
 });
 
-// 🔥 ВАЖЛИВО ДЛЯ RAILWAY
+// 🚀 запуск
 const PORT = process.env.PORT || 3000;
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log("Server running on port " + PORT);
+app.listen(PORT, () => {
+  console.log("🚀 Server running on port", PORT);
 });
