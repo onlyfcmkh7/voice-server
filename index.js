@@ -7,6 +7,8 @@ import path from 'path';
 const app = express();
 const upload = multer({ dest: 'uploads/' });
 
+app.use(express.json());
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
@@ -28,7 +30,6 @@ app.post('/voice', upload.single('file'), async (req, res) => {
 
     const originalName = req.file.originalname || 'record.wav';
     const ext = path.extname(originalName) || '.wav';
-
     fixedPath = `${tempPath}${ext}`;
 
     fs.copyFileSync(tempPath, fixedPath);
@@ -48,7 +49,8 @@ app.post('/voice', upload.single('file'), async (req, res) => {
 
     res.json({ text: transcription.text });
   } catch (error) {
-    console.error('OPENAI ERROR:', error);
+    console.error('VOICE ERROR:', error);
+
     res.status(500).json({
       error: 'Something went wrong',
       details: error?.message || 'Unknown error',
@@ -64,6 +66,42 @@ app.post('/voice', upload.single('file'), async (req, res) => {
     } catch (cleanupError) {
       console.error('CLEANUP ERROR:', cleanupError);
     }
+  }
+});
+
+app.post('/chat', async (req, res) => {
+  try {
+    const { text } = req.body || {};
+
+    if (!text || !text.trim()) {
+      return res.status(400).json({ error: 'Text is required' });
+    }
+
+    const response = await openai.responses.create({
+      model: 'gpt-5',
+      input: [
+        {
+          role: 'developer',
+          content:
+            'Ти корисний голосовий помічник. Відповідай коротко, природно, українською мовою.',
+        },
+        {
+          role: 'user',
+          content: text,
+        },
+      ],
+    });
+
+    res.json({
+      reply: response.output_text,
+    });
+  } catch (error) {
+    console.error('CHAT ERROR:', error);
+
+    res.status(500).json({
+      error: 'Chat failed',
+      details: error?.message || 'Unknown error',
+    });
   }
 });
 
