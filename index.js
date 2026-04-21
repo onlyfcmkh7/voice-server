@@ -3,7 +3,7 @@ import express from "express";
 const app = express();
 
 app.get("/", (req, res) => {
-  console.log("GET /");
+  console.log("GET / HIT");
   res.status(200).send("OK");
 });
 
