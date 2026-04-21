@@ -18,7 +18,10 @@ app.post("/voice", upload.single("audio"), async (req, res) => {
   let uploadedPath = null;
 
   try {
+    console.log("STEP 1: REQUEST RECEIVED");
+
     if (!req.file) {
+      console.log("STEP 1.1: NO FILE");
       return res.status(400).json({
         error: true,
         message: "Audio file not provided",
@@ -27,22 +30,24 @@ app.post("/voice", upload.single("audio"), async (req, res) => {
 
     uploadedPath = req.file.path;
 
-    console.log("File received:");
+    console.log("STEP 2: FILE RECEIVED");
     console.log("path:", req.file.path);
     console.log("name:", req.file.originalname);
     console.log("mimetype:", req.file.mimetype);
     console.log("size:", req.file.size);
 
-    // 1. Розпізнавання голосу
+    console.log("STEP 3: START TRANSCRIPTION");
+
     const transcription = await openai.audio.transcriptions.create({
       file: fs.createReadStream(req.file.path),
       model: "gpt-4o-mini-transcribe",
     });
 
     const text = transcription.text || "";
-    console.log("Transcription:", text);
+    console.log("STEP 4: TRANSCRIBED:", text);
 
-    // 2. Генерація відповіді
+    console.log("STEP 5: START CHAT");
+
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -57,10 +62,13 @@ app.post("/voice", upload.single("audio"), async (req, res) => {
       ],
     });
 
-    const reply = response.choices?.[0]?.message?.content || "Не вдалося сформувати відповідь.";
-    console.log("Reply:", reply);
+    const reply =
+      response.choices?.[0]?.message?.content || "Не вдалося сформувати відповідь.";
 
-    // 3. Озвучка
+    console.log("STEP 6: CHAT READY:", reply);
+
+    console.log("STEP 7: START TTS");
+
     const speech = await openai.audio.speech.create({
       model: "gpt-4o-mini-tts",
       voice: "alloy",
@@ -69,12 +77,16 @@ app.post("/voice", upload.single("audio"), async (req, res) => {
 
     const audioBuffer = Buffer.from(await speech.arrayBuffer());
 
+    console.log("STEP 8: TTS READY, bytes:", audioBuffer.length);
+
     res.set({
       "Content-Type": "audio/mpeg",
       "Content-Length": audioBuffer.length,
     });
 
     res.send(audioBuffer);
+
+    console.log("STEP 9: RESPONSE SENT");
   } catch (err) {
     console.error("VOICE ERROR:");
     console.error(err);
@@ -88,8 +100,9 @@ app.post("/voice", upload.single("audio"), async (req, res) => {
     if (uploadedPath && fs.existsSync(uploadedPath)) {
       try {
         fs.unlinkSync(uploadedPath);
+        console.log("STEP 10: TEMP FILE DELETED");
       } catch (deleteError) {
-        console.error("Failed to delete temp file:", deleteError);
+        console.error("DELETE ERROR:", deleteError);
       }
     }
   }
