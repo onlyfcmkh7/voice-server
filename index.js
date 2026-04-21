@@ -1,10 +1,12 @@
 import express from "express";
 import multer from "multer";
 import fs from "fs";
+import os from "os";
+import path from "path";
 import OpenAI from "openai";
 
 const app = express();
-const upload = multer({ dest: "uploads/" });
+const upload = multer({ storage: multer.memoryStorage() });
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -14,8 +16,13 @@ app.get("/", (req, res) => {
   res.send("Voice server is running");
 });
 
+app.get("/ping", (req, res) => {
+  console.log("PING OK");
+  res.json({ ok: true });
+});
+
 app.post("/voice", upload.single("audio"), async (req, res) => {
-  let uploadedPath = null;
+  let tempFilePath = null;
 
   try {
     console.log("STEP 1: REQUEST RECEIVED");
@@ -28,46 +35,47 @@ app.post("/voice", upload.single("audio"), async (req, res) => {
       });
     }
 
-    uploadedPath = req.file.path;
-
     console.log("STEP 2: FILE RECEIVED");
-    console.log("path:", req.file.path);
-    console.log("name:", req.file.originalname);
+    console.log("originalname:", req.file.originalname);
     console.log("mimetype:", req.file.mimetype);
     console.log("size:", req.file.size);
 
-    console.log("STEP 3: START TRANSCRIPTION");
+    tempFilePath = path.join(os.tmpdir(), `voice-${Date.now()}.m4a`);
+    fs.writeFileSync(tempFilePath, req.file.buffer);
+
+    console.log("STEP 3: TEMP FILE SAVED:", tempFilePath);
+    console.log("STEP 4: START TRANSCRIPTION");
 
     const transcription = await openai.audio.transcriptions.create({
-      file: fs.createReadStream(req.file.path),
+      file: fs.createReadStream(tempFilePath),
       model: "gpt-4o-mini-transcribe",
     });
 
     const text = transcription.text || "";
-    console.log("STEP 4: TRANSCRIBED:", text);
+    console.log("STEP 5: TRANSCRIBED:", text);
 
-    console.log("STEP 5: START CHAT");
-
+    console.log("STEP 6: START CHAT");
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
-          content: "Ти голосовий асистент. Відповідай коротко, дружньо і українською мовою.",
+          content:
+            "Ти голосовий асистент. Відповідай коротко, дружньо і українською мовою.",
         },
         {
           role: "user",
-          content: text,
+          content: text || "Користувач нічого не сказав",
         },
       ],
     });
 
     const reply =
-      response.choices?.[0]?.message?.content || "Не вдалося сформувати відповідь.";
+      response.choices?.[0]?.message?.content ||
+      "Не вдалося сформувати відповідь.";
 
-    console.log("STEP 6: CHAT READY:", reply);
-
-    console.log("STEP 7: START TTS");
+    console.log("STEP 7: CHAT READY:", reply);
+    console.log("STEP 8: START TTS");
 
     const speech = await openai.audio.speech.create({
       model: "gpt-4o-mini-tts",
@@ -77,7 +85,7 @@ app.post("/voice", upload.single("audio"), async (req, res) => {
 
     const audioBuffer = Buffer.from(await speech.arrayBuffer());
 
-    console.log("STEP 8: TTS READY, bytes:", audioBuffer.length);
+    console.log("STEP 9: TTS READY, bytes:", audioBuffer.length);
 
     res.set({
       "Content-Type": "audio/mpeg",
@@ -85,8 +93,7 @@ app.post("/voice", upload.single("audio"), async (req, res) => {
     });
 
     res.send(audioBuffer);
-
-    console.log("STEP 9: RESPONSE SENT");
+    console.log("STEP 10: RESPONSE SENT");
   } catch (err) {
     console.error("VOICE ERROR:");
     console.error(err);
@@ -97,15 +104,26 @@ app.post("/voice", upload.single("audio"), async (req, res) => {
       cause: err.cause?.code || null,
     });
   } finally {
-    if (uploadedPath && fs.existsSync(uploadedPath)) {
+    if (tempFilePath && fs.existsSync(tempFilePath)) {
       try {
-        fs.unlinkSync(uploadedPath);
-        console.log("STEP 10: TEMP FILE DELETED");
+        fs.unlinkSync(tempFilePath);
+        console.log("STEP 11: TEMP FILE DELETED");
       } catch (deleteError) {
         console.error("DELETE ERROR:", deleteError);
       }
     }
   }
+});
+
+// middleware-level error logging
+app.use((err, req, res, next) => {
+  console.error("EXPRESS ERROR:");
+  console.error(err);
+
+  res.status(500).json({
+    error: true,
+    message: err.message || "Express middleware error",
+  });
 });
 
 const PORT = process.env.PORT || 3000;
