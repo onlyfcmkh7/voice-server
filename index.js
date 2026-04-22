@@ -13,6 +13,19 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+/*
+  Зберігаємо стан розмови по sessionId.
+  Формат:
+  sessions.get(sessionId) => {
+    previousResponseId: 'resp_...'
+  }
+
+  ВАЖЛИВО:
+  Це зберігається в пам’яті процесу.
+  Якщо Railway/сервер перезапуститься — контекст скинеться.
+*/
+const sessions = new Map();
+
 app.get('/', (req, res) => {
   res.status(200).send('Server is working ✅');
 });
@@ -24,6 +37,10 @@ app.post('/voice', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    if (!req.file.size || req.file.size <= 0) {
+      return res.status(400).json({ error: 'Empty audio file' });
     }
 
     tempPath = req.file.path;
@@ -46,6 +63,8 @@ app.post('/voice', upload.single('file'), async (req, res) => {
       file: fs.createReadStream(fixedPath),
       model: 'gpt-4o-transcribe',
     });
+
+    console.log('TRANSCRIPTION:', transcription.text);
 
     res.json({ text: transcription.text });
   } catch (error) {
@@ -71,19 +90,28 @@ app.post('/voice', upload.single('file'), async (req, res) => {
 
 app.post('/chat', async (req, res) => {
   try {
-    const { text } = req.body || {};
+    const { text, sessionId } = req.body || {};
 
     if (!text || !text.trim()) {
       return res.status(400).json({ error: 'Text is required' });
     }
 
+    if (!sessionId || !sessionId.trim()) {
+      return res.status(400).json({ error: 'sessionId is required' });
+    }
+
+    const session = sessions.get(sessionId) || {
+      previousResponseId: null,
+    };
+
     const response = await openai.responses.create({
       model: 'gpt-5.4',
+      previous_response_id: session.previousResponseId || undefined,
       input: [
         {
           role: 'system',
           content:
-            'Ти корисний голосовий помічник. Відповідай коротко, природно, українською мовою.',
+            'Ти корисний голосовий помічник. Пам’ятай контекст поточної розмови. Відповідай коротко, природно, українською мовою.',
         },
         {
           role: 'user',
@@ -92,14 +120,52 @@ app.post('/chat', async (req, res) => {
       ],
     });
 
+    sessions.set(sessionId, {
+      previousResponseId: response.id,
+    });
+
+    console.log('CHAT SESSION:', {
+      sessionId,
+      previousResponseId: session.previousResponseId,
+      newResponseId: response.id,
+    });
+
     res.json({
       reply: response.output_text,
+      sessionId,
+      responseId: response.id,
     });
   } catch (error) {
     console.error('CHAT ERROR:', error);
 
     res.status(500).json({
       error: 'Chat failed',
+      details: error?.message || 'Unknown error',
+    });
+  }
+});
+
+app.post('/reset', (req, res) => {
+  try {
+    const { sessionId } = req.body || {};
+
+    if (!sessionId || !sessionId.trim()) {
+      return res.status(400).json({ error: 'sessionId is required' });
+    }
+
+    sessions.delete(sessionId);
+
+    console.log('SESSION RESET:', { sessionId });
+
+    res.json({
+      ok: true,
+      message: 'Context cleared',
+    });
+  } catch (error) {
+    console.error('RESET ERROR:', error);
+
+    res.status(500).json({
+      error: 'Reset failed',
       details: error?.message || 'Unknown error',
     });
   }
