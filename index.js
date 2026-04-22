@@ -25,6 +25,129 @@ const openai = new OpenAI({
 */
 const sessions = new Map();
 
+const STORAGE_DIR = path.join(process.cwd(), 'storage');
+const USERS_FILE = path.join(STORAGE_DIR, 'users.json');
+const CRYPTO_FILE = path.join(STORAGE_DIR, 'crypto.json');
+const CAR_FILE = path.join(STORAGE_DIR, 'car.json');
+
+function safeReadJson(filePath, fallback = {}) {
+  try {
+    if (!fs.existsSync(filePath)) return fallback;
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    if (!raw.trim()) return fallback;
+    return JSON.parse(raw);
+  } catch (error) {
+    console.error(`JSON READ ERROR: ${filePath}`, error);
+    return fallback;
+  }
+}
+
+function getUserProfile(userId) {
+  const users = safeReadJson(USERS_FILE, {});
+  return users[userId] || null;
+}
+
+function getCryptoContext() {
+  return safeReadJson(CRYPTO_FILE, null);
+}
+
+function getCarContext() {
+  return safeReadJson(CAR_FILE, null);
+}
+
+function normalizeText(text) {
+  return (text || '')
+    .toLowerCase()
+    .replace(/[.,!?;:()"]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function shouldUseCryptoContext(text) {
+  const normalized = normalizeText(text);
+
+  const cryptoKeywords = [
+    'крипт',
+    'btc',
+    'bitcoin',
+    'біткоїн',
+    'биткоин',
+    'портфель',
+    'sol',
+    'link',
+    'ltc',
+    'avax',
+    'arb',
+    'inj',
+    'альт',
+    'ринок',
+    'ринку',
+    'цикл',
+    'циклу',
+    'монет',
+    'монета',
+    'інвест',
+    'інвести',
+  ];
+
+  return cryptoKeywords.some((word) => normalized.includes(word));
+}
+
+function shouldUseCarContext(text) {
+  const normalized = normalizeText(text);
+
+  const carKeywords = [
+    'getz',
+    'гетц',
+    'hyundai',
+    'хуендай',
+    'двигун',
+    'мотор',
+    'масло',
+    'гбц',
+    'прокладк',
+    'антифриз',
+    'тосол',
+    'щуп',
+    'розхід масла',
+    'витрата масла',
+    'компрес',
+    'кільця',
+    'сальник',
+    'машин',
+    'авто',
+    'перегрів',
+    'температур',
+  ];
+
+  return carKeywords.some((word) => normalized.includes(word));
+}
+
+function buildSystemPrompt({ userProfile, useCrypto, useCar }) {
+  let systemPrompt =
+    'Ти корисний голосовий помічник. Пам’ятай контекст поточної розмови. Відповідай дуже коротко, природно, українською мовою.';
+
+  if (userProfile?.profilePrompt) {
+    systemPrompt += `\n\nПРОФІЛЬ КОРИСТУВАЧА:\n${userProfile.profilePrompt}`;
+  }
+
+  if (useCrypto) {
+    const crypto = getCryptoContext();
+    if (crypto) {
+      systemPrompt += `\n\nКРИПТО-КОНТЕКСТ:\n${JSON.stringify(crypto, null, 2)}`;
+    }
+  }
+
+  if (useCar) {
+    const car = getCarContext();
+    if (car) {
+      systemPrompt += `\n\nАВТО-КОНТЕКСТ:\n${JSON.stringify(car, null, 2)}`;
+    }
+  }
+
+  return systemPrompt;
+}
+
 app.get('/', (req, res) => {
   res.status(200).send('Server is working ✅');
 });
@@ -91,7 +214,7 @@ app.post('/voice', upload.single('file'), async (req, res) => {
 
 app.post('/chat', async (req, res) => {
   try {
-    const { text, sessionId } = req.body || {};
+    const { text, sessionId, userId = 'user123' } = req.body || {};
 
     if (!text || !text.trim()) {
       return res.status(400).json({ error: 'Text is required' });
@@ -101,11 +224,25 @@ app.post('/chat', async (req, res) => {
       return res.status(400).json({ error: 'sessionId is required' });
     }
 
+    if (!userId || !String(userId).trim()) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
     const cleanText = text.trim();
 
     const session = sessions.get(sessionId) || {
       previousResponseId: null,
     };
+
+    const userProfile = getUserProfile(String(userId).trim());
+    const useCrypto = shouldUseCryptoContext(cleanText);
+    const useCar = shouldUseCarContext(cleanText);
+
+    const systemPrompt = buildSystemPrompt({
+      userProfile,
+      useCrypto,
+      useCar,
+    });
 
     const response = await openai.responses.create({
       model: 'gpt-5.4',
@@ -113,8 +250,7 @@ app.post('/chat', async (req, res) => {
       input: [
         {
           role: 'system',
-          content:
-            'Ти корисний голосовий помічник. Пам’ятай контекст поточної розмови. Відповідай дуже коротко, природно, українською мовою.',
+          content: systemPrompt,
         },
         {
           role: 'user',
@@ -129,9 +265,13 @@ app.post('/chat', async (req, res) => {
 
     console.log('CHAT SESSION:', {
       sessionId,
+      userId,
       previousResponseId: session.previousResponseId,
       newResponseId: response.id,
       userText: cleanText,
+      useCrypto,
+      useCar,
+      hasProfile: !!userProfile,
     });
 
     res.json({
