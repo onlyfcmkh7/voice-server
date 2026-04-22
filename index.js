@@ -15,13 +15,12 @@ const openai = new OpenAI({
 
 /*
   Зберігаємо стан розмови по sessionId.
-  Формат:
   sessions.get(sessionId) => {
     previousResponseId: 'resp_...'
   }
 
-  ВАЖЛИВО:
-  Це зберігається в пам’яті процесу.
+  УВАГА:
+  Це пам’ять процесу.
   Якщо Railway/сервер перезапуститься — контекст скинеться.
 */
 const sessions = new Map();
@@ -64,9 +63,11 @@ app.post('/voice', upload.single('file'), async (req, res) => {
       model: 'gpt-4o-transcribe',
     });
 
-    console.log('TRANSCRIPTION:', transcription.text);
+    const text = (transcription.text || '').trim();
 
-    res.json({ text: transcription.text });
+    console.log('TRANSCRIPTION:', text);
+
+    res.json({ text });
   } catch (error) {
     console.error('VOICE ERROR:', error);
 
@@ -100,6 +101,8 @@ app.post('/chat', async (req, res) => {
       return res.status(400).json({ error: 'sessionId is required' });
     }
 
+    const cleanText = text.trim();
+
     const session = sessions.get(sessionId) || {
       previousResponseId: null,
     };
@@ -111,11 +114,11 @@ app.post('/chat', async (req, res) => {
         {
           role: 'system',
           content:
-            'Ти корисний голосовий помічник. Пам’ятай контекст поточної розмови. Відповідай коротко, природно, українською мовою.',
+            'Ти корисний голосовий помічник. Пам’ятай контекст поточної розмови. Відповідай дуже коротко, природно, українською мовою.',
         },
         {
           role: 'user',
-          content: text,
+          content: cleanText,
         },
       ],
     });
@@ -128,6 +131,7 @@ app.post('/chat', async (req, res) => {
       sessionId,
       previousResponseId: session.previousResponseId,
       newResponseId: response.id,
+      userText: cleanText,
     });
 
     res.json({
@@ -179,10 +183,12 @@ app.post('/tts', async (req, res) => {
       return res.status(400).json({ error: 'Text is required' });
     }
 
+    const cleanText = text.trim();
+
     const speech = await openai.audio.speech.create({
       model: 'gpt-4o-mini-tts',
       voice: 'marin',
-      input: text,
+      input: cleanText,
     });
 
     const buffer = Buffer.from(await speech.arrayBuffer());
