@@ -25,10 +25,9 @@ const openai = new OpenAI({
 */
 const sessions = new Map();
 
-const STORAGE_DIR = path.join(process.cwd(), 'storage');
-const USERS_FILE = path.join(STORAGE_DIR, 'users.json');
-const CRYPTO_FILE = path.join(STORAGE_DIR, 'crypto.json');
-const CAR_FILE = path.join(STORAGE_DIR, 'car.json');
+const USERS_FILE = path.join(process.cwd(), 'users.json');
+const CRYPTO_FILE = path.join(process.cwd(), 'crypto.json');
+const CAR_FILE = path.join(process.cwd(), 'car.json');
 
 function safeReadJson(filePath, fallback = {}) {
   try {
