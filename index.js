@@ -346,6 +346,88 @@ app.post('/tts', async (req, res) => {
   }
 });
 
+app.get("/telegram/news", async (req, res) => {
+  try {
+    const messages = await getUnreadTelegramMessages(5);
+
+    if (messages.length === 0) {
+      return res.json({ summary: "Нових новин немає." });
+    }
+
+    const readNews = safeReadJson(READ_NEWS_FILE, {});
+
+    const unreadMessages = messages.filter((m) => {
+      return !readNews[getMessageKey(m)];
+    });
+
+    if (unreadMessages.length === 0) {
+      return res.json({ summary: "Нових новин немає." });
+    }
+
+    fs.writeFileSync(
+      LAST_NEWS_FILE,
+      JSON.stringify(unreadMessages.slice(0, 20), null, 2)
+    );
+
+    const text = unreadMessages
+      .slice(0, 20)
+      .map((m) => `[${m.chat}] ${m.text}`)
+      .join("\n")
+      .slice(0, 3000);
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `
+Ти новинний асистент для голосу.
+
+Відповідай українською.
+Максимум 5 коротких пунктів.
+До 10 слів кожен.
+Без вступу.
+Без води.
+Без пояснень.
+Ігноруй неважливі повідомлення.
+
+Формат:
+1. ...
+2. ...
+3. ...
+`
+        },
+        {
+          role: "user",
+          content: text
+        }
+      ]
+    });
+
+    const summary = (completion?.choices?.[0]?.message?.content || "")
+      .trim()
+      .slice(0, 600);
+
+    for (const msg of unreadMessages) {
+      readNews[getMessageKey(msg)] = true;
+    }
+
+    fs.writeFileSync(READ_NEWS_FILE, JSON.stringify(readNews, null, 2));
+
+    res.json({
+      summary: summary || "Не знайшов важливих новин."
+    });
+
+  } catch (e) {
+    console.error("TELEGRAM NEWS ERROR:", e);
+
+    res.status(500).json({
+      error: "Telegram error",
+      details: e.message || "Unknown error"
+    });
+  }
+});
+
 app.get("/telegram/news/detail", async (req, res) => {
   try {
     const number = Number(req.query.number || 1);
@@ -415,7 +497,6 @@ app.get("/telegram/news/detail", async (req, res) => {
   }
 });
 
-    
 const PORT = process.env.PORT || 3000;
 
 console.log("STARTING TELEGRAM...");
