@@ -356,11 +356,11 @@ app.get("/telegram/news", async (req, res) => {
       .slice(0, 3000);
 
     const completion = await openai.chat.completions.create({
-  model: "gpt-4o-mini",
-  messages: [
-    {
-      role: "system",
-      content: `
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `
 Ти новинний асистент для голосу.
 
 Відповідай українською.
@@ -369,19 +369,37 @@ app.get("/telegram/news", async (req, res) => {
 Без вступу.
 Без води.
 Без пояснень.
-Ігноруй повідомлення, які не є новинами.
+Ігноруй неважливі повідомлення.
 
 Формат:
 1. ...
 2. ...
 3. ...
 `
-    },
-    {
-      role: "user",
-      content: text
-    }
-  ]
+        },
+        {
+          role: "user",
+          content: text
+        }
+      ]
+    });
+
+    const summary = (completion.choices[0]?.message?.content || "")
+      .trim()
+      .slice(0, 600);
+
+    res.json({
+      summary: summary || "Не знайшов важливих новин"
+    });
+
+  } catch (e) {
+    console.error("TELEGRAM NEWS ERROR:", e);
+
+    res.status(500).json({
+      error: "Telegram error",
+      details: e.message || "Unknown error"
+    });
+  }
 });
 
     const summary = (completion.choices[0]?.message?.content || "")
