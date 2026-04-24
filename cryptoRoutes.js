@@ -8,6 +8,7 @@ const openai = new OpenAI({
   timeout: 20000,
 });
 
+// 🔥 ТІЛЬКИ ТВОЇ МОНЕТИ
 const DEFAULT_SYMBOLS = ["BTC", "SOL", "AVAX", "LTC"];
 
 const COINS = {
@@ -15,32 +16,36 @@ const COINS = {
   SOL: "solana",
   AVAX: "avalanche-2",
   LTC: "litecoin",
-  LINK: "chainlink",
 };
 
+// кеш
 const cache = new Map();
 const CACHE_TTL = 60 * 1000;
 
+// 🔹 отримання цін
 async function fetchPrices(symbols) {
   const ids = symbols.map((s) => COINS[s]).join(",");
+
   const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`;
 
   const response = await fetch(url);
 
   if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`CoinGecko ${response.status}: ${errorText}`);
+    const text = await response.text();
+    throw new Error(`CoinGecko ${response.status}: ${text}`);
   }
 
   return response.json();
 }
 
+// =====================
+// 🔹 PRICE
+// =====================
 router.get("/price", async (req, res) => {
   try {
     const symbol = String(req.query.symbol || "").toUpperCase();
-    const coinId = COINS[symbol];
 
-    if (!coinId) {
+    if (!COINS[symbol]) {
       return res.status(400).json({ error: "Unsupported symbol" });
     }
 
@@ -50,155 +55,140 @@ router.get("/price", async (req, res) => {
     }
 
     const data = await fetchPrices([symbol]);
-    const coin = data[coinId];
+    const coin = data[COINS[symbol]];
 
-    if (!coin || typeof coin.usd !== "number") {
-      return res.status(502).json({ error: "Invalid data", data });
-    }
-
-    const change24h = Number(coin.usd_24h_change?.toFixed(2) || 0);
+    const change = Number(coin?.usd_24h_change?.toFixed(2) || 0);
 
     const result = {
       symbol,
       priceUsd: coin.usd,
-      change24h,
+      change24h: change,
       text: `${symbol} зараз ${coin.usd}$, ${
-        change24h >= 0 ? "плюс" : "мінус"
-      } ${Math.abs(change24h)}%. Це не інвестпорада.`,
+        change >= 0 ? "плюс" : "мінус"
+      } ${Math.abs(change)}%. Це не інвестпорада.`,
       cached: false,
     };
 
     cache.set(`price:${symbol}`, { data: result, time: Date.now() });
-    return res.json(result);
+
+    res.json(result);
   } catch (e) {
-    console.error("PRICE ERROR:", e);
-    return res.status(500).json({
-      error: "Crypto price error",
-      details: e.message,
-    });
+    res.status(500).json({ error: "price error", details: e.message });
   }
 });
 
+// =====================
+// 🔹 SUMMARY
+// =====================
 router.get("/summary", async (req, res) => {
   try {
-    const symbols = DEFAULT_SYMBOLS;
-
     const cached = cache.get("summary");
+
     if (cached && Date.now() - cached.time < CACHE_TTL) {
       return res.json({ ...cached.data, cached: true });
     }
 
-    const data = await fetchPrices(symbols);
+    const data = await fetchPrices(DEFAULT_SYMBOLS);
 
-    const coins = symbols.map((symbol) => {
-      const coin = data[COINS[symbol]];
-      const change24h = Number(coin?.usd_24h_change?.toFixed(2) || 0);
-
+    const coins = DEFAULT_SYMBOLS.map((s) => {
+      const c = data[COINS[s]];
       return {
-        symbol,
-        priceUsd: coin?.usd ?? null,
-        change24h,
+        symbol: s,
+        priceUsd: c?.usd ?? null,
+        change24h: Number(c?.usd_24h_change?.toFixed(2) || 0),
       };
     });
 
-    const text = coins
-      .map(
-        (c) =>
-          `${c.symbol} ${c.change24h >= 0 ? "плюс" : "мінус"} ${Math.abs(
-            c.change24h
-          )}%`
-      )
-      .join(". ");
-
-    const result = {
-      coins,
-      text: `${text}. Ринок ${
-        coins.every((c) => c.change24h >= 0)
+    const text =
+      coins
+        .map(
+          (c) =>
+            `${c.symbol} ${
+              c.change24h >= 0 ? "плюс" : "мінус"
+            } ${Math.abs(c.change24h)}%`
+        )
+        .join(". ") +
+      `. Ринок ${
+        coins.filter((c) => c.change24h > 0).length >= 3
           ? "переважно росте"
           : "змішаний"
-      }. Це не інвестпорада.`,
-      cached: false,
-    };
+      }. Це не інвестпорада.`;
+
+    const result = { coins, text, cached: false };
 
     cache.set("summary", { data: result, time: Date.now() });
-    return res.json(result);
+
+    res.json(result);
   } catch (e) {
-    console.error("SUMMARY ERROR:", e);
-    return res.status(500).json({
-      error: "Crypto summary error",
-      details: e.message,
-    });
+    res.status(500).json({ error: "summary error", details: e.message });
   }
 });
 
+// =====================
+// 🔹 COMPARE (GPT)
+// =====================
 router.get("/compare", async (req, res) => {
   try {
     const symbolsParam = String(req.query.symbols || "").toUpperCase();
 
     const symbols = symbolsParam
-      ? symbolsParam.split(",").map((s) => s.trim()).filter(Boolean)
+      ? symbolsParam.split(",").map((s) => s.trim())
       : DEFAULT_SYMBOLS;
 
-    const validSymbols = symbols.filter((s) => COINS[s]);
+    const valid = symbols.filter((s) => COINS[s]);
 
-    if (validSymbols.length < 2) {
-      return res.status(400).json({
-        error: "Need at least 2 valid symbols",
-      });
+    if (valid.length < 2) {
+      return res.status(400).json({ error: "Need 2+ symbols" });
     }
 
-    const cacheKey = `compare:${validSymbols.join(",")}`;
+    const cacheKey = `compare:${valid.join(",")}`;
     const cached = cache.get(cacheKey);
 
     if (cached && Date.now() - cached.time < CACHE_TTL) {
       return res.json({ ...cached.data, cached: true });
     }
 
-    const data = await fetchPrices(validSymbols);
+    const data = await fetchPrices(valid);
 
-    const coins = validSymbols.map((symbol) => {
-      const coin = data[COINS[symbol]];
-      const change24h = Number(coin?.usd_24h_change?.toFixed(2) || 0);
-
+    const coins = valid.map((s) => {
+      const c = data[COINS[s]];
       return {
-        symbol,
-        priceUsd: coin?.usd ?? null,
-        change24h,
+        symbol: s,
+        priceUsd: c?.usd ?? null,
+        change24h: Number(c?.usd_24h_change?.toFixed(2) || 0),
       };
     });
 
-    const simpleBest = [...coins].sort(
-      (a, b) => b.change24h - a.change24h
-    )[0];
+    const best = [...coins].sort((a, b) => b.change24h - a.change24h)[0];
 
+    // 🔥 GPT АНАЛІТИКА
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
         {
           role: "system",
           content:
-            "Ти крипто-аналітик для голосового асистента. Відповідай українською, коротко, практично. Не давай гарантій. Обовʼязково додай: Це не інвестпорада.",
+            "Ти крипто-аналітик для голосового асистента. Коротко, по ділу, без гарантій. Завжди додавай: Це не інвестпорада.",
         },
         {
           role: "user",
           content: `
-Порівняй ці монети:
+Монети:
 
 ${coins
   .map(
     (c) =>
-      `${c.symbol}: ціна ${c.priceUsd} USD, зміна за 24 години ${c.change24h}%`
+      `${c.symbol}: ціна ${c.priceUsd}, зміна за 24г ${c.change24h}%`
   )
   .join("\n")}
 
 Скажи:
-- яка монета зараз виглядає найсильніше
-- які ризики
-- чи не пізно входити
-- практичний висновок
+- хто виглядає сильніше
+- чи варто заходити
+- ризики
+- короткий висновок
 
 Максимум 4 короткі речення.
-Без списків.
 `,
         },
       ],
@@ -206,43 +196,38 @@ ${coins
 
     const text =
       completion.choices?.[0]?.message?.content?.trim() ||
-      `${simpleBest.symbol} зараз виглядає сильніше за динамікою 24 години. Ризик високий через волатильність. Заходити краще частинами. Це не інвестпорада.`;
+      `${best.symbol} виглядає сильніше за динамікою. Ризик високий через волатильність. Заходити краще частинами. Це не інвестпорада.`;
 
     const result = {
       coins,
-      best: simpleBest.symbol,
+      best: best.symbol,
       text,
       cached: false,
     };
 
     cache.set(cacheKey, { data: result, time: Date.now() });
-    return res.json(result);
+
+    res.json(result);
   } catch (e) {
-    console.error("COMPARE ERROR:", e);
-    return res.status(500).json({
-      error: "Crypto compare error",
-      details: e.message,
-    });
+    res.status(500).json({ error: "compare error", details: e.message });
   }
 });
 
+// =====================
+// 🔹 ANALYZE
+// =====================
 router.get("/analyze", async (req, res) => {
   try {
     const symbol = String(req.query.symbol || "").toUpperCase();
-    const coinId = COINS[symbol];
 
-    if (!coinId) {
+    if (!COINS[symbol]) {
       return res.status(400).json({ error: "Unsupported symbol" });
     }
 
     const data = await fetchPrices([symbol]);
-    const coin = data[coinId];
+    const coin = data[COINS[symbol]];
 
-    if (!coin || typeof coin.usd !== "number") {
-      return res.status(502).json({ error: "Invalid data", data });
-    }
-
-    const change24h = Number(coin.usd_24h_change?.toFixed(2) || 0);
+    const change = Number(coin?.usd_24h_change?.toFixed(2) || 0);
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -250,17 +235,16 @@ router.get("/analyze", async (req, res) => {
         {
           role: "system",
           content:
-            "Ти крипто-аналітик для голосового асистента. Відповідай українською, дуже коротко, без гарантій. Завжди додай: Це не інвестпорада.",
+            "Крипто-аналітик. Коротко: тренд, ризик, чи входити. Без гарантій. Завжди: Це не інвестпорада.",
         },
         {
           role: "user",
           content: `
 Монета: ${symbol}
-Ціна: ${coin.usd} USD
-Зміна за 24 години: ${change24h}%
+Ціна: ${coin.usd}
+Зміна: ${change}%
 
-Дай коротко: тренд, ризик, чи не пізно входити, практичний висновок.
-Максимум 4 короткі речення.
+Дай коротку відповідь.
 `,
         },
       ],
@@ -268,20 +252,16 @@ router.get("/analyze", async (req, res) => {
 
     const text =
       completion.choices?.[0]?.message?.content?.trim() ||
-      `${symbol} зараз ${coin.usd}$, зміна ${change24h}%. Ризик високий. Це не інвестпорада.`;
+      `${symbol} зараз ${coin.usd}$. Ризик високий. Це не інвестпорада.`;
 
-    return res.json({
+    res.json({
       symbol,
       priceUsd: coin.usd,
-      change24h,
+      change24h: change,
       text,
     });
   } catch (e) {
-    console.error("ANALYZE ERROR:", e);
-    return res.status(500).json({
-      error: "Crypto analyze error",
-      details: e.message,
-    });
+    res.status(500).json({ error: "analyze error", details: e.message });
   }
 });
 
