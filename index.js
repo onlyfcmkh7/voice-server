@@ -23,6 +23,7 @@ const sessions = new Map();
 const USERS_FILE = path.join(process.cwd(), 'users.json');
 const CRYPTO_FILE = path.join(process.cwd(), 'crypto.json');
 const CAR_FILE = path.join(process.cwd(), 'car.json');
+const READ_NEWS_FILE = path.join(process.cwd(), 'read_news.json');
 
 function safeReadJson(filePath, fallback = {}) {
   try {
@@ -55,6 +56,9 @@ function normalizeText(text) {
     .replace(/[.,!?;:()"]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+function getMessageKey(message) {
+  return `${message.chat}:${message.id}`;
 }
 
 function shouldUseCryptoContext(text) {
@@ -346,10 +350,20 @@ app.get("/telegram/news", async (req, res) => {
     const messages = await getUnreadTelegramMessages(5);
 
     if (messages.length === 0) {
-      return res.json({ summary: "Немає нових повідомлень" });
+      return res.json({ summary: "Нових новин немає." });
     }
 
-    const text = messages
+    const readNews = safeReadJson(READ_NEWS_FILE, {});
+
+    const unreadMessages = messages.filter((m) => {
+      return !readNews[getMessageKey(m)];
+    });
+
+    if (unreadMessages.length === 0) {
+      return res.json({ summary: "Нових новин немає." });
+    }
+
+    const text = unreadMessages
       .slice(0, 20)
       .map((m) => `[${m.chat}] ${m.text}`)
       .join("\n")
@@ -383,6 +397,30 @@ app.get("/telegram/news", async (req, res) => {
         }
       ]
     });
+
+    const summary = (completion?.choices?.[0]?.message?.content || "")
+      .trim()
+      .slice(0, 600);
+
+    for (const msg of unreadMessages) {
+      readNews[getMessageKey(msg)] = true;
+    }
+
+    fs.writeFileSync(READ_NEWS_FILE, JSON.stringify(readNews, null, 2));
+
+    res.json({
+      summary: summary || "Не знайшов важливих новин."
+    });
+
+  } catch (e) {
+    console.error("TELEGRAM NEWS ERROR:", e);
+
+    res.status(500).json({
+      error: "Telegram error",
+      details: e.message || "Unknown error"
+    });
+  }
+});
 
     const summary = (completion.choices[0]?.message?.content || "")
       .trim()
