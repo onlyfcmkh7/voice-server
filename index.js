@@ -3,6 +3,8 @@ import multer from 'multer';
 import OpenAI from 'openai';
 import fs from 'fs';
 import path from 'path';
+import cryptoRoutes from "./cryptoRoutes.js";
+
 import {
   startTelegram,
   getUnreadTelegramMessages
@@ -12,10 +14,11 @@ const app = express();
 const upload = multer({ dest: 'uploads/' });
 
 app.use(express.json());
+app.use("/crypto", cryptoRoutes);
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
-  timeout: 20000 // 🔥 20 секунд на всі запити
+  timeout: 20000
 });
 
 const sessions = new Map();
