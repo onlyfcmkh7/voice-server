@@ -1,6 +1,12 @@
 import express from "express";
+import OpenAI from "openai";
 
 const router = express.Router();
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  timeout: 20000,
+});
 
 const COINS = {
   BTC: "bitcoin",
@@ -11,9 +17,8 @@ const COINS = {
 };
 
 const cache = new Map();
-const CACHE_TTL = 60 * 1000; // 60 сек
+const CACHE_TTL = 60 * 1000;
 
-// 🔹 універсальний запит
 async function fetchPrices(symbols) {
   const ids = symbols.map((s) => COINS[s]).join(",");
 
@@ -29,9 +34,6 @@ async function fetchPrices(symbols) {
   return response.json();
 }
 
-// =====================
-// 🔹 PRICE (1 монета)
-// =====================
 router.get("/price", async (req, res) => {
   try {
     const symbol = String(req.query.symbol || "").toUpperCase();
@@ -49,7 +51,7 @@ router.get("/price", async (req, res) => {
     const data = await fetchPrices([symbol]);
     const coin = data[coinId];
 
-    if (!coin?.usd) {
+    if (!coin || typeof coin.usd !== "number") {
       return res.status(502).json({ error: "Invalid data", data });
     }
 
@@ -67,16 +69,16 @@ router.get("/price", async (req, res) => {
 
     cache.set(`price:${symbol}`, { data: result, time: Date.now() });
 
-    res.json(result);
+    return res.json(result);
   } catch (e) {
     console.error("PRICE ERROR:", e);
-    res.status(500).json({ error: "Crypto price error", details: e.message });
+    return res.status(500).json({
+      error: "Crypto price error",
+      details: e.message,
+    });
   }
 });
 
-// =====================
-// 🔹 SUMMARY (всі монети)
-// =====================
 router.get("/summary", async (req, res) => {
   try {
     const symbols = ["BTC", "SOL", "AVAX", "LTC"];
@@ -102,9 +104,9 @@ router.get("/summary", async (req, res) => {
     const text = coins
       .map(
         (c) =>
-          `${c.symbol} ${
-            c.change24h >= 0 ? "плюс" : "мінус"
-          } ${Math.abs(c.change24h)}%`
+          `${c.symbol} ${c.change24h >= 0 ? "плюс" : "мінус"} ${Math.abs(
+            c.change24h
+          )}%`
       )
       .join(". ");
 
@@ -120,18 +122,16 @@ router.get("/summary", async (req, res) => {
 
     cache.set("summary", { data: result, time: Date.now() });
 
-    res.json(result);
+    return res.json(result);
   } catch (e) {
     console.error("SUMMARY ERROR:", e);
-    res
-      .status(500)
-      .json({ error: "Crypto summary error", details: e.message });
+    return res.status(500).json({
+      error: "Crypto summary error",
+      details: e.message,
+    });
   }
 });
 
-// =====================
-// 🔹 COMPARE (2+ монети)
-// =====================
 router.get("/compare", async (req, res) => {
   try {
     const symbolsParam = String(req.query.symbols || "").toUpperCase();
@@ -139,7 +139,7 @@ router.get("/compare", async (req, res) => {
 
     if (symbols.length < 2) {
       return res.status(400).json({
-        error: "Example: /compare?symbols=SOL,LINK",
+        error: "Example: /crypto/compare?symbols=SOL,LTC",
       });
     }
 
@@ -170,23 +170,88 @@ router.get("/compare", async (req, res) => {
       coins
         .map(
           (c) =>
-            `${c.symbol} ${
-              c.change24h >= 0 ? "плюс" : "мінус"
-            } ${Math.abs(c.change24h)}%`
+            `${c.symbol} ${c.change24h >= 0 ? "плюс" : "мінус"} ${Math.abs(
+              c.change24h
+            )}%`
         )
         .join(". ") +
       `. Краще виглядає ${best.symbol}. Це не інвестпорада.`;
 
-    res.json({
+    return res.json({
       coins,
       best: best.symbol,
       text,
     });
   } catch (e) {
     console.error("COMPARE ERROR:", e);
-    res
-      .status(500)
-      .json({ error: "Crypto compare error", details: e.message });
+    return res.status(500).json({
+      error: "Crypto compare error",
+      details: e.message,
+    });
+  }
+});
+
+router.get("/analyze", async (req, res) => {
+  try {
+    const symbol = String(req.query.symbol || "").toUpperCase();
+    const coinId = COINS[symbol];
+
+    if (!coinId) {
+      return res.status(400).json({ error: "Unsupported symbol" });
+    }
+
+    const data = await fetchPrices([symbol]);
+    const coin = data[coinId];
+
+    if (!coin || typeof coin.usd !== "number") {
+      return res.status(502).json({ error: "Invalid data", data });
+    }
+
+    const change24h = Number(coin.usd_24h_change?.toFixed(2) || 0);
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content:
+            "Ти крипто-аналітик для голосового асистента. Відповідай українською, дуже коротко, без гарантій. Завжди додай: Це не інвестпорада.",
+        },
+        {
+          role: "user",
+          content: `
+Монета: ${symbol}
+Ціна: ${coin.usd} USD
+Зміна за 24 години: ${change24h}%
+
+Дай коротко:
+1. тренд
+2. ризик
+3. чи не пізно входити
+4. практичний висновок
+
+Максимум 4 короткі речення.
+`,
+        },
+      ],
+    });
+
+    const text =
+      completion.choices?.[0]?.message?.content?.trim() ||
+      `${symbol} зараз ${coin.usd}$, зміна ${change24h}%. Ризик високий. Це не інвестпорада.`;
+
+    return res.json({
+      symbol,
+      priceUsd: coin.usd,
+      change24h,
+      text,
+    });
+  } catch (e) {
+    console.error("ANALYZE ERROR:", e);
+    return res.status(500).json({
+      error: "Crypto analyze error",
+      details: e.message,
+    });
   }
 });
 
