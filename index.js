@@ -3,6 +3,7 @@ import multer from 'multer';
 import OpenAI from 'openai';
 import fs from 'fs';
 import path from 'path';
+import { startTelegram } from "./telegramClient.js";
 
 const app = express();
 const upload = multer({ dest: 'uploads/' });
@@ -337,6 +338,8 @@ app.post('/tts', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
+
+startTelegram();
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
