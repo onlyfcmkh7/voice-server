@@ -46,10 +46,11 @@ export async function getUnreadTelegramMessages(limitPerDialog = 5) {
 
       const cleanMessages = messages
         .map((msg) => ({
-          chat: channel,
-          text: msg.message || "",
-          date: msg.date,
-        }))
+  id: msg.id,
+  chat: channel,
+  text: msg.message || "",
+  date: msg.date,
+}))
         .filter((msg) => msg.text.trim().length > 0);
 
       result.push(...cleanMessages);
