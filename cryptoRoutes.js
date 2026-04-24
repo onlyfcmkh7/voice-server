@@ -8,6 +8,8 @@ const openai = new OpenAI({
   timeout: 20000,
 });
 
+const DEFAULT_SYMBOLS = ["BTC", "SOL", "AVAX", "LTC"];
+
 const COINS = {
   BTC: "bitcoin",
   SOL: "solana",
@@ -21,7 +23,6 @@ const CACHE_TTL = 60 * 1000;
 
 async function fetchPrices(symbols) {
   const ids = symbols.map((s) => COINS[s]).join(",");
-
   const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`;
 
   const response = await fetch(url);
@@ -68,7 +69,6 @@ router.get("/price", async (req, res) => {
     };
 
     cache.set(`price:${symbol}`, { data: result, time: Date.now() });
-
     return res.json(result);
   } catch (e) {
     console.error("PRICE ERROR:", e);
@@ -81,7 +81,7 @@ router.get("/price", async (req, res) => {
 
 router.get("/summary", async (req, res) => {
   try {
-    const symbols = ["BTC", "SOL", "AVAX", "LTC"];
+    const symbols = DEFAULT_SYMBOLS;
 
     const cached = cache.get("summary");
     if (cached && Date.now() - cached.time < CACHE_TTL) {
@@ -121,7 +121,6 @@ router.get("/summary", async (req, res) => {
     };
 
     cache.set("summary", { data: result, time: Date.now() });
-
     return res.json(result);
   } catch (e) {
     console.error("SUMMARY ERROR:", e);
@@ -135,22 +134,16 @@ router.get("/summary", async (req, res) => {
 router.get("/compare", async (req, res) => {
   try {
     const symbolsParam = String(req.query.symbols || "").toUpperCase();
-    const symbols = symbolsParam
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
 
-    if (symbols.length < 2) {
-      return res.status(400).json({
-        error: "Example: /crypto/compare?symbols=SOL,LTC",
-      });
-    }
+    const symbols = symbolsParam
+      ? symbolsParam.split(",").map((s) => s.trim()).filter(Boolean)
+      : DEFAULT_SYMBOLS;
 
     const validSymbols = symbols.filter((s) => COINS[s]);
 
     if (validSymbols.length < 2) {
       return res.status(400).json({
-        error: "Not enough valid symbols",
+        error: "Need at least 2 valid symbols",
       });
     }
 
@@ -189,7 +182,7 @@ router.get("/compare", async (req, res) => {
         {
           role: "user",
           content: `
-Порівняй монети за короткими ринковими даними:
+Порівняй ці монети:
 
 ${coins
   .map(
@@ -198,9 +191,9 @@ ${coins
   )
   .join("\n")}
 
-Дай відповідь для голосу:
-- хто зараз виглядає сильніше
-- ризики
+Скажи:
+- яка монета зараз виглядає найсильніше
+- які ризики
 - чи не пізно входити
 - практичний висновок
 
@@ -213,7 +206,7 @@ ${coins
 
     const text =
       completion.choices?.[0]?.message?.content?.trim() ||
-      `${simpleBest.symbol} зараз виглядає сильніше за динамікою 24 години. Ризик залишається високим через волатильність. Заходити краще частинами, не на всю суму. Це не інвестпорада.`;
+      `${simpleBest.symbol} зараз виглядає сильніше за динамікою 24 години. Ризик високий через волатильність. Заходити краще частинами. Це не інвестпорада.`;
 
     const result = {
       coins,
@@ -222,11 +215,7 @@ ${coins
       cached: false,
     };
 
-    cache.set(cacheKey, {
-      data: result,
-      time: Date.now(),
-    });
-
+    cache.set(cacheKey, { data: result, time: Date.now() });
     return res.json(result);
   } catch (e) {
     console.error("COMPARE ERROR:", e);
@@ -270,12 +259,7 @@ router.get("/analyze", async (req, res) => {
 Ціна: ${coin.usd} USD
 Зміна за 24 години: ${change24h}%
 
-Дай коротко:
-1. тренд
-2. ризик
-3. чи не пізно входити
-4. практичний висновок
-
+Дай коротко: тренд, ризик, чи не пізно входити, практичний висновок.
 Максимум 4 короткі речення.
 `,
         },
