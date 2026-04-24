@@ -402,42 +402,6 @@ app.get("/telegram/news", async (req, res) => {
   }
 });
 
-    const summary = (completion.choices[0]?.message?.content || "")
-      .trim()
-      .slice(0, 600);
-
-    res.json({
-      summary: summary || "Не знайшов важливих новин"
-    });
-
-  } catch (e) {
-    console.error("TELEGRAM NEWS ERROR:", e);
-
-    res.status(500).json({
-      error: "Telegram error",
-      details: e.message || "Unknown error"
-    });
-  }
-});
-
-    const summary = (completion.choices[0]?.message?.content || "")
-      .trim()
-      .slice(0, 600);
-
-    res.json({
-      summary: summary || "Не знайшов важливих новин"
-    });
-
-  } catch (e) {
-    console.error("TELEGRAM NEWS ERROR:", e);
-
-    res.status(500).json({
-      error: "Telegram error",
-      details: e.message || "Unknown error"
-    });
-  }
-});
-
 const PORT = process.env.PORT || 3000;
 
 console.log("STARTING TELEGRAM...");
