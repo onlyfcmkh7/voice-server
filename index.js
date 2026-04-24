@@ -24,6 +24,7 @@ const USERS_FILE = path.join(process.cwd(), 'users.json');
 const CRYPTO_FILE = path.join(process.cwd(), 'crypto.json');
 const CAR_FILE = path.join(process.cwd(), 'car.json');
 const READ_NEWS_FILE = path.join(process.cwd(), 'read_news.json');
+const LAST_NEWS_FILE = path.join(process.cwd(), 'last_news.json');
 
 function safeReadJson(filePath, fallback = {}) {
   try {
@@ -345,29 +346,31 @@ app.post('/tts', async (req, res) => {
   }
 });
 
-app.get("/telegram/news", async (req, res) => {
+app.get("/telegram/news/detail", async (req, res) => {
   try {
-    const messages = await getUnreadTelegramMessages(5);
+    const number = Number(req.query.number || 1);
 
-    if (messages.length === 0) {
-      return res.json({ summary: "Нових новин немає." });
+    if (!Number.isInteger(number) || number < 1) {
+      return res.status(400).json({
+        error: "Invalid news number"
+      });
     }
 
-    const readNews = safeReadJson(READ_NEWS_FILE, {});
+    const lastNews = safeReadJson(LAST_NEWS_FILE, []);
 
-    const unreadMessages = messages.filter((m) => {
-      return !readNews[getMessageKey(m)];
-    });
-
-    if (unreadMessages.length === 0) {
-      return res.json({ summary: "Нових новин немає." });
+    if (!Array.isArray(lastNews) || lastNews.length === 0) {
+      return res.json({
+        detail: "Спочатку попроси короткі новини."
+      });
     }
 
-    const text = unreadMessages
-      .slice(0, 20)
-      .map((m) => `[${m.chat}] ${m.text}`)
-      .join("\n")
-      .slice(0, 3000);
+    const selected = lastNews[number - 1];
+
+    if (!selected) {
+      return res.json({
+        detail: "Такої новини в останньому списку немає."
+      });
+    }
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -375,48 +378,38 @@ app.get("/telegram/news", async (req, res) => {
         {
           role: "system",
           content: `
-Ти новинний асистент для голосу.
+Ти пояснюєш одну новину для голосового асистента.
 
 Відповідай українською.
-Максимум 5 коротких пунктів.
-До 10 слів кожен.
-Без вступу.
+Коротко, але змістовно.
+До 5 речень.
 Без води.
-Без пояснень.
-Ігноруй неважливі повідомлення.
-
-Формат:
-1. ...
-2. ...
-3. ...
+Поясни:
+- що сталося
+- чому це важливо
+- можливі наслідки
 `
         },
         {
           role: "user",
-          content: text
+          content: `[${selected.chat}] ${selected.text}`
         }
       ]
     });
 
-    const summary = (completion?.choices?.[0]?.message?.content || "")
+    const detail = (completion?.choices?.[0]?.message?.content || "")
       .trim()
-      .slice(0, 600);
-
-    for (const msg of unreadMessages) {
-      readNews[getMessageKey(msg)] = true;
-    }
-
-    fs.writeFileSync(READ_NEWS_FILE, JSON.stringify(readNews, null, 2));
+      .slice(0, 900);
 
     res.json({
-      summary: summary || "Не знайшов важливих новин."
+      detail: detail || "Не вдалося пояснити цю новину."
     });
 
   } catch (e) {
-    console.error("TELEGRAM NEWS ERROR:", e);
+    console.error("TELEGRAM NEWS DETAIL ERROR:", e);
 
     res.status(500).json({
-      error: "Telegram error",
+      error: "Telegram news detail error",
       details: e.message || "Unknown error"
     });
   }
