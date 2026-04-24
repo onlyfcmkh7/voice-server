@@ -21,18 +21,47 @@ router.get("/price", async (req, res) => {
     const url = `https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd&include_24hr_change=true`;
 
     const response = await fetch(url);
-    const data = await response.json();
 
+    if (!response.ok) {
+      const errorText = await response.text();
+      return res.status(502).json({
+        error: "CoinGecko error",
+        status: response.status,
+        details: errorText,
+      });
+    }
+
+    const data = await response.json();
     const coin = data[coinId];
+
+    if (!coin || typeof coin.usd !== "number") {
+      return res.status(502).json({
+        error: "Invalid CoinGecko response",
+        data,
+      });
+    }
+
+    const change24h =
+      typeof coin.usd_24h_change === "number"
+        ? Number(coin.usd_24h_change.toFixed(2))
+        : null;
 
     res.json({
       symbol,
+      coinId,
       priceUsd: coin.usd,
-      change24h: Number(coin.usd_24h_change?.toFixed(2)),
-      text: `${symbol} зараз ${coin.usd}$, зміна ${coin.usd_24h_change?.toFixed(2)}%. Це не інвестпорада.`,
+      change24h,
+      text: `${symbol} зараз ${coin.usd}${
+        change24h !== null ? `, зміна ${change24h}%` : ""
+      }. Це не інвестпорада.`,
     });
   } catch (e) {
-    res.status(500).json({ error: "Crypto error" });
+    console.error("Crypto error:", e);
+
+    res.status(500).json({
+      error: "Crypto error",
+      details: e.message,
+    });
   }
 });
 
