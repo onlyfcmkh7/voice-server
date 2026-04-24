@@ -339,6 +339,7 @@ app.post('/tts', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 
+console.log("STARTING TELEGRAM...");
 startTelegram();
 
 app.listen(PORT, '0.0.0.0', () => {
