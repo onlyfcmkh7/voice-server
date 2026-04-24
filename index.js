@@ -15,6 +15,7 @@ app.use(express.json());
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+  timeout: 20000 // 🔥 20 секунд на всі запити
 });
 
 const sessions = new Map();
@@ -356,22 +357,20 @@ app.get("/telegram/news", async (req, res) => {
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
+      timeout: 15000,
       messages: [
         {
           role: "system",
           content: `
-Ти новинний асистент для голосового режиму.
+Ти новинний асистент для голосу.
 
 Відповідай українською.
-
-Правила:
-- максимум 5 пунктів
-- кожен пункт до 10 слів
-- тільки факти
-- без вступу
-- без пояснень
-- без води
-- якщо повідомлення не є новиною, ігноруй його
+Максимум 5 коротких пунктів.
+До 10 слів кожен.
+Без вступу.
+Без води.
+Без пояснень.
+Ігноруй повідомлення, які не є новинами.
 
 Формат:
 1. ...
@@ -386,11 +385,13 @@ app.get("/telegram/news", async (req, res) => {
       ]
     });
 
-    const summary = (completion.choices[0].message.content || "")
+    const summary = (completion.choices[0]?.message?.content || "")
       .trim()
       .slice(0, 600);
 
-    res.json({ summary });
+    res.json({
+      summary: summary || "Не знайшов важливих новин"
+    });
 
   } catch (e) {
     console.error("TELEGRAM NEWS ERROR:", e);
