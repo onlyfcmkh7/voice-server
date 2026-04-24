@@ -318,7 +318,7 @@ app.post('/tts', async (req, res) => {
       return res.status(400).json({ error: 'Text is required' });
     }
 
-    const cleanText = text.trim();
+    const cleanText = text.trim().slice(0, 800);
 
     const speech = await openai.audio.speech.create({
       model: 'gpt-4o-mini-tts',
@@ -340,14 +340,6 @@ app.post('/tts', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
-
-console.log("STARTING TELEGRAM...");
-startTelegram();
-
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
 app.get("/telegram/news", async (req, res) => {
   try {
     const messages = await getUnreadTelegramMessages(5);
@@ -357,8 +349,10 @@ app.get("/telegram/news", async (req, res) => {
     }
 
     const text = messages
+      .slice(0, 20)
       .map((m) => `[${m.chat}] ${m.text}`)
-      .join("\n");
+      .join("\n")
+      .slice(0, 3000);
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -366,17 +360,23 @@ app.get("/telegram/news", async (req, res) => {
         {
           role: "system",
           content: `
-Ти новинний асистент.
+Ти новинний асистент для голосового режиму.
 
-Зроби короткий список:
+Відповідай українською.
+
+Правила:
 - максимум 5 пунктів
-- кожен пункт 1 рядок
-- тільки суть
+- кожен пункт до 10 слів
+- тільки факти
+- без вступу
+- без пояснень
 - без води
+- якщо повідомлення не є новиною, ігноруй його
 
 Формат:
-1. новина
-2. новина
+1. ...
+2. ...
+3. ...
 `
         },
         {
@@ -386,12 +386,27 @@ app.get("/telegram/news", async (req, res) => {
       ]
     });
 
-    const summary = completion.choices[0].message.content;
+    const summary = (completion.choices[0].message.content || "")
+      .trim()
+      .slice(0, 600);
 
     res.json({ summary });
 
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: "Telegram error" });
+    console.error("TELEGRAM NEWS ERROR:", e);
+
+    res.status(500).json({
+      error: "Telegram error",
+      details: e.message || "Unknown error"
+    });
   }
+});
+
+const PORT = process.env.PORT || 3000;
+
+console.log("STARTING TELEGRAM...");
+startTelegram();
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });
