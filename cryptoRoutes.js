@@ -135,7 +135,10 @@ router.get("/summary", async (req, res) => {
 router.get("/compare", async (req, res) => {
   try {
     const symbolsParam = String(req.query.symbols || "").toUpperCase();
-    const symbols = symbolsParam.split(",").map((s) => s.trim());
+    const symbols = symbolsParam
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
 
     if (symbols.length < 2) {
       return res.status(400).json({
@@ -151,6 +154,13 @@ router.get("/compare", async (req, res) => {
       });
     }
 
+    const cacheKey = `compare:${validSymbols.join(",")}`;
+    const cached = cache.get(cacheKey);
+
+    if (cached && Date.now() - cached.time < CACHE_TTL) {
+      return res.json({ ...cached.data, cached: true });
+    }
+
     const data = await fetchPrices(validSymbols);
 
     const coins = validSymbols.map((symbol) => {
@@ -164,24 +174,60 @@ router.get("/compare", async (req, res) => {
       };
     });
 
-    const best = [...coins].sort((a, b) => b.change24h - a.change24h)[0];
+    const simpleBest = [...coins].sort(
+      (a, b) => b.change24h - a.change24h
+    )[0];
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content:
+            "Ти крипто-аналітик для голосового асистента. Відповідай українською, коротко, практично. Не давай гарантій. Обовʼязково додай: Це не інвестпорада.",
+        },
+        {
+          role: "user",
+          content: `
+Порівняй монети за короткими ринковими даними:
+
+${coins
+  .map(
+    (c) =>
+      `${c.symbol}: ціна ${c.priceUsd} USD, зміна за 24 години ${c.change24h}%`
+  )
+  .join("\n")}
+
+Дай відповідь для голосу:
+- хто зараз виглядає сильніше
+- ризики
+- чи не пізно входити
+- практичний висновок
+
+Максимум 4 короткі речення.
+Без списків.
+`,
+        },
+      ],
+    });
 
     const text =
-      coins
-        .map(
-          (c) =>
-            `${c.symbol} ${c.change24h >= 0 ? "плюс" : "мінус"} ${Math.abs(
-              c.change24h
-            )}%`
-        )
-        .join(". ") +
-      `. Краще виглядає ${best.symbol}. Це не інвестпорада.`;
+      completion.choices?.[0]?.message?.content?.trim() ||
+      `${simpleBest.symbol} зараз виглядає сильніше за динамікою 24 години. Ризик залишається високим через волатильність. Заходити краще частинами, не на всю суму. Це не інвестпорада.`;
 
-    return res.json({
+    const result = {
       coins,
-      best: best.symbol,
+      best: simpleBest.symbol,
       text,
+      cached: false,
+    };
+
+    cache.set(cacheKey, {
+      data: result,
+      time: Date.now(),
     });
+
+    return res.json(result);
   } catch (e) {
     console.error("COMPARE ERROR:", e);
     return res.status(500).json({
