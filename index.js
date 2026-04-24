@@ -3,7 +3,10 @@ import multer from 'multer';
 import OpenAI from 'openai';
 import fs from 'fs';
 import path from 'path';
-import { startTelegram } from "./telegramClient.js";
+import {
+  startTelegram,
+  getUnreadTelegramMessages
+} from "./telegramClient.js";
 
 const app = express();
 const upload = multer({ dest: 'uploads/' });
@@ -344,4 +347,39 @@ startTelegram();
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
+});
+app.get("/telegram/news", async (req, res) => {
+  try {
+    const messages = await getUnreadTelegramMessages(5);
+
+    if (messages.length === 0) {
+      return res.json({ summary: "Немає нових повідомлень" });
+    }
+
+    const text = messages
+      .map((m) => `[${m.chat}] ${m.text}`)
+      .join("\n");
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: "Стисло витягни головні новини з повідомлень"
+        },
+        {
+          role: "user",
+          content: text
+        }
+      ]
+    });
+
+    const summary = completion.choices[0].message.content;
+
+    res.json({ summary });
+
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Telegram error" });
+  }
 });
