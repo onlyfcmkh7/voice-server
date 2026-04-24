@@ -356,12 +356,11 @@ app.get("/telegram/news", async (req, res) => {
       .slice(0, 3000);
 
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      timeout: 15000,
-      messages: [
-        {
-          role: "system",
-          content: `
+  model: "gpt-4o-mini",
+  messages: [
+    {
+      role: "system",
+      content: `
 Ти новинний асистент для голосу.
 
 Відповідай українською.
@@ -377,13 +376,13 @@ app.get("/telegram/news", async (req, res) => {
 2. ...
 3. ...
 `
-        },
-        {
-          role: "user",
-          content: text
-        }
-      ]
-    });
+    },
+    {
+      role: "user",
+      content: text
+    }
+  ]
+});
 
     const summary = (completion.choices[0]?.message?.content || "")
       .trim()
