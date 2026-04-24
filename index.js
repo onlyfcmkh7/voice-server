@@ -13,16 +13,6 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-/*
-  Зберігаємо стан розмови по sessionId.
-  sessions.get(sessionId) => {
-    previousResponseId: 'resp_...'
-  }
-
-  УВАГА:
-  Це пам’ять процесу.
-  Якщо Railway/сервер перезапуститься — контекст скинеться.
-*/
 const sessions = new Map();
 
 const USERS_FILE = path.join(process.cwd(), 'users.json');
@@ -182,7 +172,8 @@ app.post('/voice', upload.single('file'), async (req, res) => {
 
     const transcription = await openai.audio.transcriptions.create({
       file: fs.createReadStream(fixedPath),
-      model: 'gpt-4o-transcribe',
+      model: 'gpt-4o-mini-transcribe',
+      language: 'uk',
     });
 
     const text = (transcription.text || '').trim();
@@ -202,6 +193,7 @@ app.post('/voice', upload.single('file'), async (req, res) => {
       if (tempPath && fs.existsSync(tempPath)) {
         fs.unlinkSync(tempPath);
       }
+
       if (fixedPath && fs.existsSync(fixedPath)) {
         fs.unlinkSync(fixedPath);
       }
