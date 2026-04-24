@@ -9,13 +9,27 @@ const COINS = {
   LTC: "litecoin",
 };
 
+const cache = new Map();
+const CACHE_TTL = 60 * 1000; // 60 секунд
+
 router.get("/price", async (req, res) => {
   try {
     const symbol = String(req.query.symbol || "").toUpperCase();
     const coinId = COINS[symbol];
 
     if (!coinId) {
-      return res.status(400).json({ error: "Unsupported symbol" });
+      return res.status(400).json({
+        error: "Unsupported symbol",
+      });
+    }
+
+    const cached = cache.get(symbol);
+
+    if (cached && Date.now() - cached.time < CACHE_TTL) {
+      return res.json({
+        ...cached.data,
+        cached: true,
+      });
     }
 
     const url = `https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd&include_24hr_change=true`;
@@ -24,6 +38,7 @@ router.get("/price", async (req, res) => {
 
     if (!response.ok) {
       const errorText = await response.text();
+
       return res.status(502).json({
         error: "CoinGecko error",
         status: response.status,
@@ -46,7 +61,7 @@ router.get("/price", async (req, res) => {
         ? Number(coin.usd_24h_change.toFixed(2))
         : null;
 
-    res.json({
+    const result = {
       symbol,
       coinId,
       priceUsd: coin.usd,
@@ -54,11 +69,19 @@ router.get("/price", async (req, res) => {
       text: `${symbol} зараз ${coin.usd}${
         change24h !== null ? `, зміна ${change24h}%` : ""
       }. Це не інвестпорада.`,
+      cached: false,
+    };
+
+    cache.set(symbol, {
+      data: result,
+      time: Date.now(),
     });
+
+    return res.json(result);
   } catch (e) {
     console.error("Crypto error:", e);
 
-    res.status(500).json({
+    return res.status(500).json({
       error: "Crypto error",
       details: e.message,
     });
