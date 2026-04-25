@@ -78,7 +78,7 @@ router.get("/price", async (req, res) => {
 });
 
 // =====================
-// 🔹 SUMMARY
+// 🔹 SUMMARY (FIXED)
 // =====================
 router.get("/summary", async (req, res) => {
   try {
@@ -99,11 +99,12 @@ router.get("/summary", async (req, res) => {
       };
     });
 
+    // 🔥 ФІКС: додаємо ціну
     const text =
       coins
         .map(
           (c) =>
-            `${c.symbol} ${
+            `${c.symbol} зараз ${c.priceUsd}$, ${
               c.change24h >= 0 ? "плюс" : "мінус"
             } ${Math.abs(c.change24h)}%`
         )
@@ -161,7 +162,6 @@ router.get("/compare", async (req, res) => {
 
     const best = [...coins].sort((a, b) => b.change24h - a.change24h)[0];
 
-    // 🔥 GPT АНАЛІТИКА
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
