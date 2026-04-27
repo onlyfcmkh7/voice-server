@@ -11,7 +11,7 @@ function normalizeCityName(city) {
     .replace(/\s+/g, " ");
 }
 
-// 🔥 НОВЕ — витягуємо місто з голосу
+// 🔥 ВИТЯГУЄМО МІСТО З ГОЛОСУ (ФІКС ВСІХ "ПОСЛЕ")
 function extractCity(query = "") {
   return normalizeCityName(query)
     .replace("погода", "")
@@ -21,12 +21,24 @@ function extractCity(query = "") {
     .replace("буде", "")
     .replace("чи", "")
     .replace("дощ", "")
+
+    // дні (укр + рос + кривий STT)
     .replace("сьогодні", "")
+    .replace("сегодня", "")
     .replace("завтра", "")
     .replace("післязавтра", "")
-    .replace(/на\s+\d+\s*(дні|дня|днів)/, "")
+    .replace("після завтра", "")
+    .replace("послезавтра", "")
+    .replace("после завтра", "")
+    .replace("после", "")
+
+    // діапазон
+    .replace(/на\s+\d+\s*(дні|дня|днів|день|дней)/, "")
+
+    // прийменники
     .replace(/\bв\b/g, "")
     .replace(/\bу\b/g, "")
+
     .trim();
 }
 
@@ -36,6 +48,7 @@ function cityVariants(cityName) {
   return [...new Set([
     city,
 
+    // українські відмінки
     city.replace(/ії$/, "ія"),
     city.replace(/лії$/, "лія"),
     city.replace(/еї$/, "ея"),
@@ -46,15 +59,18 @@ function cityVariants(cityName) {
     city.replace(/ем$/, ""),
     city.replace(/ом$/, ""),
 
+    // часті кейси
     city.replace(/ковелі$/, "ковель"),
     city.replace(/ізюмі$/, "ізюм"),
     city.replace(/балаклеї$/, "балаклія"),
     city.replace(/балаклії$/, "балаклія"),
 
+    // рос / STT
     city.replace(/харькове$/, "харків"),
     city.replace(/киеве$/, "київ"),
     city.replace(/львове$/, "львів"),
     city.replace(/одессе$/, "одеса"),
+    city.replace(/одесса$/, "одеса"),
     city.replace(/днепре$/, "дніпро"),
   ])].filter(Boolean);
 }
@@ -75,10 +91,7 @@ async function findCity(cityName) {
 
     const response = await fetch(url);
 
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`Geocoding ${response.status}: ${body}`);
-    }
+    if (!response.ok) continue;
 
     const data = await response.json();
 
@@ -97,34 +110,37 @@ function weatherText(code) {
     2: "мінлива хмарність",
     3: "хмарно",
     45: "туман",
-    48: "туман з памороззю",
-    51: "слабка мряка",
+    48: "туман",
+    51: "мряка",
     53: "мряка",
     55: "сильна мряка",
-    61: "слабкий дощ",
+    61: "дощ",
     63: "дощ",
     65: "сильний дощ",
-    71: "слабкий сніг",
+    71: "сніг",
     73: "сніг",
     75: "сильний сніг",
-    80: "короткий дощ",
+    80: "дощ",
     81: "зливи",
     82: "сильні зливи",
     95: "гроза",
-    96: "гроза з градом",
-    99: "сильна гроза з градом",
   };
 
-  return map[code] || "невідомі умови";
+  return map[code] || "без опадів";
 }
 
 function parseWeatherIntent(query = "") {
   const q = normalizeCityName(query);
 
-  if (q.includes("післязавтра")) return { type: "day", offset: 2 };
-  if (q.includes("завтра")) return { type: "day", offset: 1 };
+  if (q.includes("післязавтра") || q.includes("послезавтра")) {
+    return { type: "day", offset: 2 };
+  }
 
-  const match = q.match(/на\s+(\d+)\s*(дні|дня|днів)/);
+  if (q.includes("завтра")) {
+    return { type: "day", offset: 1 };
+  }
+
+  const match = q.match(/на\s+(\d+)\s*(дні|дня|днів|день|дней)/);
 
   if (match) {
     return {
@@ -133,7 +149,7 @@ function parseWeatherIntent(query = "") {
     };
   }
 
-  return { type: "current", offset: 0 };
+  return { type: "current" };
 }
 
 function formatDailyWeather(daily, index) {
@@ -145,12 +161,11 @@ function formatDailyWeather(daily, index) {
   let day = "сьогодні";
   if (index === 1) day = "завтра";
   if (index === 2) day = "післязавтра";
-  if (index > 2) day = `через ${index} дні`;
 
-  let text = `${day}: ${description}, від ${min} до ${max} градусів`;
+  let text = `${day}: ${description}, ${min}–${max}°`;
 
   if (rain > 0.5) {
-    text += `, опади близько ${Math.round(rain)} міліметрів`;
+    text += `, дощ`;
   }
 
   return text;
@@ -158,9 +173,9 @@ function formatDailyWeather(daily, index) {
 
 router.get("/", async (req, res) => {
   try {
-    const queryText = req.query.q || req.query.text || "";
+    const queryText = req.query.q || "";
 
-    // 🔥 КЛЮЧОВИЙ ФІКС
+    // 🔥 ГОЛОВНЕ: беремо місто з голосу
     const extracted = extractCity(queryText);
     const rawCity = normalizeCityName(req.query.city || extracted || "київ");
 
@@ -174,48 +189,46 @@ router.get("/", async (req, res) => {
       });
     }
 
-    const place = [
-      location.name,
-      location.admin1,
-      location.country,
-    ].filter(Boolean).join(", ");
+    const place = location.name;
 
     const url =
       `https://api.open-meteo.com/v1/forecast` +
       `?latitude=${location.latitude}` +
       `&longitude=${location.longitude}` +
-      `&current=temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m` +
       `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum` +
+      `&current=temperature_2m,weather_code` +
       `&forecast_days=5` +
       `&timezone=auto`;
 
     const response = await fetch(url);
     const data = await response.json();
 
-    const current = data.current || {};
-    const daily = data.daily || {};
+    const daily = data.daily;
+    const current = data.current;
 
     let text;
 
     if (intent.type === "day") {
-      text = `Погода: ${place}. ${formatDailyWeather(daily, intent.offset)}.`;
+      text = `${place}. ${formatDailyWeather(daily, intent.offset)}.`;
     } else if (intent.type === "range") {
-      const days = [];
+      const parts = [];
 
       for (let i = 0; i < intent.days; i++) {
-        days.push(formatDailyWeather(daily, i));
+        parts.push(formatDailyWeather(daily, i));
       }
 
-      text = `Прогноз: ${place} на ${intent.days} дні. ${days.join(". ")}.`;
+      text = `${place}. ${parts.join(". ")}.`;
     } else {
       text =
-        `Погода: ${place}. ${Math.round(current.temperature_2m)} градусів. ` +
+        `${place}. ${Math.round(current.temperature_2m)}°, ` +
         `${weatherText(current.weather_code)}.`;
     }
 
     res.json({ text });
 
   } catch (e) {
+    console.error(e);
+
     res.status(500).json({
       text: "Не вдалося отримати погоду.",
     });
