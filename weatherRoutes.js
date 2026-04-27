@@ -3,13 +3,39 @@ import fetch from "node-fetch";
 
 const router = express.Router();
 
-const CITY_COORDS = {
-  "київ": { name: "Київ", lat: 50.4501, lon: 30.5234 },
-  "львів": { name: "Львів", lat: 49.8397, lon: 24.0297 },
-  "одеса": { name: "Одеса", lat: 46.4825, lon: 30.7233 },
-  "харків": { name: "Харків", lat: 49.9935, lon: 36.2304 },
-  "дніпро": { name: "Дніпро", lat: 48.4647, lon: 35.0462 },
-};
+function normalizeCityName(city) {
+  return String(city || "київ")
+    .toLowerCase()
+    .trim()
+    .replace(/[.,!?;:()"]/g, "")
+    .replace(/\s+/g, " ");
+}
+
+async function findCity(cityName) {
+  const query = encodeURIComponent(cityName);
+
+  const url =
+    `https://geocoding-api.open-meteo.com/v1/search` +
+    `?name=${query}` +
+    `&count=1` +
+    `&language=uk` +
+    `&format=json`;
+
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Geocoding ${response.status}: ${body}`);
+  }
+
+  const data = await response.json();
+
+  if (!data.results || data.results.length === 0) {
+    return null;
+  }
+
+  return data.results[0];
+}
 
 function weatherText(code) {
   const map = {
@@ -32,6 +58,8 @@ function weatherText(code) {
     81: "зливи",
     82: "сильні зливи",
     95: "гроза",
+    96: "гроза з градом",
+    99: "сильна гроза з градом",
   };
 
   return map[code] || "невідомі умови";
@@ -39,20 +67,24 @@ function weatherText(code) {
 
 router.get("/", async (req, res) => {
   try {
-    const rawCity = String(req.query.city || "київ")
-    .toLowerCase()
-    .trim()
-    .replace("і", "")
-    .replace("у", "")
-    .replace("ові", "")
-    .replace("еві", "");
+    const rawCity = normalizeCityName(req.query.city || "київ");
 
-const city = CITY_COORDS[rawCity] || CITY_COORDS["київ"];
+    const location = await findCity(rawCity);
+
+    if (!location) {
+      return res.json({
+        text: `Не знайшов місто ${rawCity}. Спробуй сказати назву точніше.`,
+      });
+    }
+
+    const cityName = location.name || rawCity;
+    const country = location.country || "";
+    const region = location.admin1 || "";
 
     const url =
       `https://api.open-meteo.com/v1/forecast` +
-      `?latitude=${city.lat}` +
-      `&longitude=${city.lon}` +
+      `?latitude=${location.latitude}` +
+      `&longitude=${location.longitude}` +
       `&current=temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m` +
       `&timezone=auto`;
 
@@ -72,13 +104,19 @@ const city = CITY_COORDS[rawCity] || CITY_COORDS["київ"];
     const precipitation = current.precipitation ?? 0;
     const description = weatherText(current.weather_code);
 
+    const place = [cityName, region, country].filter(Boolean).join(", ");
+
     const text =
-      `Погода в місті ${city.name}: ${temp} градусів, відчувається як ${feels}. ` +
+      `Погода: ${place}. ${temp} градусів, відчувається як ${feels}. ` +
       `${description}. Вітер ${wind} кілометрів на годину. ` +
       `Опади: ${precipitation} міліметрів.`;
 
     res.json({
-      city: city.name,
+      city: cityName,
+      region,
+      country,
+      latitude: location.latitude,
+      longitude: location.longitude,
       temperature: temp,
       feelsLike: feels,
       wind,
