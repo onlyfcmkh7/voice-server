@@ -28,7 +28,7 @@ function cityVariants(cityName) {
     city.replace(/ем$/, ""),
     city.replace(/ом$/, ""),
 
-    // типові міста
+    // популярні кейси
     city.replace(/ковелі$/, "ковель"),
     city.replace(/ізюмі$/, "ізюм"),
     city.replace(/балаклеї$/, "балаклія"),
@@ -54,6 +54,7 @@ async function findCity(cityName) {
       `?name=${query}` +
       `&count=1` +
       `&language=uk` +
+      `&country=UA` + // 🔥 ФІКС: тільки Україна
       `&format=json`;
 
     const response = await fetch(url);
@@ -113,8 +114,8 @@ router.get("/", async (req, res) => {
     }
 
     const cityName = location.name || rawCity;
-    const country = location.country || "";
     const region = location.admin1 || "";
+    const country = location.country || "";
 
     const url =
       `https://api.open-meteo.com/v1/forecast` +
@@ -143,8 +144,8 @@ router.get("/", async (req, res) => {
 
     const text =
       `Погода: ${place}. ${temp} градусів, відчувається як ${feels}. ` +
-      `${description}. Вітер ${wind} кілометрів на годину. ` +
-      `Опади: ${precipitation} міліметрів.`;
+      `${description}. Вітер ${wind} км/год. ` +
+      `Опади: ${precipitation} мм.`;
 
     res.json({
       city: cityName,
@@ -159,6 +160,7 @@ router.get("/", async (req, res) => {
       weatherCode: current.weather_code,
       text,
     });
+
   } catch (e) {
     console.error("WEATHER ERROR:", e);
 
