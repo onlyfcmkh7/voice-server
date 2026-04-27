@@ -39,8 +39,15 @@ function weatherText(code) {
 
 router.get("/", async (req, res) => {
   try {
-    const rawCity = String(req.query.city || "київ").toLowerCase().trim();
-    const city = CITY_COORDS[rawCity] || CITY_COORDS["київ"];
+    const rawCity = String(req.query.city || "київ")
+    .toLowerCase()
+    .trim()
+    .replace("і", "")
+    .replace("у", "")
+    .replace("ові", "")
+    .replace("еві", "");
+
+const city = CITY_COORDS[rawCity] || CITY_COORDS["київ"];
 
     const url =
       `https://api.open-meteo.com/v1/forecast` +
