@@ -4,11 +4,30 @@ import fetch from "node-fetch";
 const router = express.Router();
 
 function normalizeCityName(city) {
-  return String(city || "київ")
+  return String(city || "")
     .toLowerCase()
     .trim()
     .replace(/[.,!?;:()"]/g, "")
     .replace(/\s+/g, " ");
+}
+
+// 🔥 НОВЕ — витягуємо місто з голосу
+function extractCity(query = "") {
+  return normalizeCityName(query)
+    .replace("погода", "")
+    .replace("температура", "")
+    .replace("прогноз", "")
+    .replace("яка", "")
+    .replace("буде", "")
+    .replace("чи", "")
+    .replace("дощ", "")
+    .replace("сьогодні", "")
+    .replace("завтра", "")
+    .replace("післязавтра", "")
+    .replace(/на\s+\d+\s*(дні|дня|днів)/, "")
+    .replace(/\bв\b/g, "")
+    .replace(/\bу\b/g, "")
+    .trim();
 }
 
 function cityVariants(cityName) {
@@ -102,13 +121,8 @@ function weatherText(code) {
 function parseWeatherIntent(query = "") {
   const q = normalizeCityName(query);
 
-  if (q.includes("післязавтра")) {
-    return { type: "day", offset: 2 };
-  }
-
-  if (q.includes("завтра")) {
-    return { type: "day", offset: 1 };
-  }
+  if (q.includes("післязавтра")) return { type: "day", offset: 2 };
+  if (q.includes("завтра")) return { type: "day", offset: 1 };
 
   const match = q.match(/на\s+(\d+)\s*(дні|дня|днів)/);
 
@@ -144,22 +158,27 @@ function formatDailyWeather(daily, index) {
 
 router.get("/", async (req, res) => {
   try {
-    const rawCity = normalizeCityName(req.query.city || "київ");
     const queryText = req.query.q || req.query.text || "";
+
+    // 🔥 КЛЮЧОВИЙ ФІКС
+    const extracted = extractCity(queryText);
+    const rawCity = normalizeCityName(req.query.city || extracted || "київ");
+
     const intent = parseWeatherIntent(queryText);
 
     const location = await findCity(rawCity);
 
     if (!location) {
       return res.json({
-        text: `Не знайшов місто ${rawCity}. Спробуй сказати назву точніше.`,
+        text: `Не знайшов місто ${rawCity}.`,
       });
     }
 
-    const cityName = location.name || rawCity;
-    const region = location.admin1 || "";
-    const country = location.country || "";
-    const place = [cityName, region, country].filter(Boolean).join(", ");
+    const place = [
+      location.name,
+      location.admin1,
+      location.country,
+    ].filter(Boolean).join(", ");
 
     const url =
       `https://api.open-meteo.com/v1/forecast` +
@@ -171,28 +190,15 @@ router.get("/", async (req, res) => {
       `&timezone=auto`;
 
     const response = await fetch(url);
-
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`Open-Meteo ${response.status}: ${body}`);
-    }
-
     const data = await response.json();
+
     const current = data.current || {};
     const daily = data.daily || {};
-
-    const temp = Math.round(current.temperature_2m);
-    const feels = Math.round(current.apparent_temperature);
-    const wind = Math.round(current.wind_speed_10m);
-    const precipitation = current.precipitation ?? 0;
-    const description = weatherText(current.weather_code);
 
     let text;
 
     if (intent.type === "day") {
-      text =
-        `Погода: ${place}. ` +
-        `${formatDailyWeather(daily, intent.offset)}.`;
+      text = `Погода: ${place}. ${formatDailyWeather(daily, intent.offset)}.`;
     } else if (intent.type === "range") {
       const days = [];
 
@@ -200,42 +206,18 @@ router.get("/", async (req, res) => {
         days.push(formatDailyWeather(daily, i));
       }
 
-      text =
-        `Прогноз: ${place} на ${intent.days} дні. ` +
-        `${days.join(". ")}.`;
+      text = `Прогноз: ${place} на ${intent.days} дні. ${days.join(". ")}.`;
     } else {
       text =
-        `Погода: ${place}. ${temp} градусів, відчувається як ${feels}. ` +
-        `${description}. Вітер ${wind} км/год. ` +
-        `Опади: ${precipitation} мм.`;
+        `Погода: ${place}. ${Math.round(current.temperature_2m)} градусів. ` +
+        `${weatherText(current.weather_code)}.`;
     }
 
-    res.json({
-      city: cityName,
-      region,
-      country,
-      latitude: location.latitude,
-      longitude: location.longitude,
-
-      temperature: temp,
-      feelsLike: feels,
-      wind,
-      precipitation,
-      weatherCode: current.weather_code,
-
-      intent,
-      forecast: daily,
-
-      text,
-    });
+    res.json({ text });
 
   } catch (e) {
-    console.error("WEATHER ERROR:", e);
-
     res.status(500).json({
       text: "Не вдалося отримати погоду.",
-      error: "weather error",
-      details: e.message,
     });
   }
 });
