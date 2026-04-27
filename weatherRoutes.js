@@ -11,30 +11,66 @@ function normalizeCityName(city) {
     .replace(/\s+/g, " ");
 }
 
+function cityVariants(cityName) {
+  const city = normalizeCityName(cityName);
+
+  return [...new Set([
+    city,
+
+    // українські відмінки
+    city.replace(/ії$/, "ія"),
+    city.replace(/лії$/, "лія"),
+    city.replace(/еї$/, "ея"),
+    city.replace(/ої$/, "а"),
+    city.replace(/і$/, ""),
+    city.replace(/ї$/, ""),
+    city.replace(/ю$/, "я"),
+    city.replace(/ем$/, ""),
+    city.replace(/ом$/, ""),
+
+    // типові міста
+    city.replace(/ковелі$/, "ковель"),
+    city.replace(/ізюмі$/, "ізюм"),
+    city.replace(/балаклеї$/, "балаклія"),
+    city.replace(/балаклії$/, "балаклія"),
+
+    // рос/мікс після STT
+    city.replace(/харькове$/, "харків"),
+    city.replace(/киеве$/, "київ"),
+    city.replace(/львове$/, "львів"),
+    city.replace(/одессе$/, "одеса"),
+    city.replace(/днепре$/, "дніпро"),
+  ])].filter(Boolean);
+}
+
 async function findCity(cityName) {
-  const query = encodeURIComponent(cityName);
+  const variants = cityVariants(cityName);
 
-  const url =
-    `https://geocoding-api.open-meteo.com/v1/search` +
-    `?name=${query}` +
-    `&count=1` +
-    `&language=uk` +
-    `&format=json`;
+  for (const variant of variants) {
+    const query = encodeURIComponent(variant);
 
-  const response = await fetch(url);
+    const url =
+      `https://geocoding-api.open-meteo.com/v1/search` +
+      `?name=${query}` +
+      `&count=1` +
+      `&language=uk` +
+      `&format=json`;
 
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Geocoding ${response.status}: ${body}`);
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Geocoding ${response.status}: ${body}`);
+    }
+
+    const data = await response.json();
+
+    if (data.results && data.results.length > 0) {
+      return data.results[0];
+    }
   }
 
-  const data = await response.json();
-
-  if (!data.results || data.results.length === 0) {
-    return null;
-  }
-
-  return data.results[0];
+  return null;
 }
 
 function weatherText(code) {
@@ -68,7 +104,6 @@ function weatherText(code) {
 router.get("/", async (req, res) => {
   try {
     const rawCity = normalizeCityName(req.query.city || "київ");
-
     const location = await findCity(rawCity);
 
     if (!location) {
