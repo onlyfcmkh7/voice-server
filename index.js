@@ -4,6 +4,7 @@ import OpenAI from 'openai';
 import fs from 'fs';
 import path from 'path';
 import cryptoRoutes from "./cryptoRoutes.js";
+import weatherRoutes from "./weatherRoutes.js";
 
 import {
   startTelegram,
@@ -15,6 +16,7 @@ const upload = multer({ dest: 'uploads/' });
 
 app.use(express.json());
 app.use("/crypto", cryptoRoutes);
+app.use("/weather", weatherRoutes);
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
