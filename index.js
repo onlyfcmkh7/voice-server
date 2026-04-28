@@ -485,12 +485,12 @@ if (!selected.text || !selected.text.trim()) {
   });
 }
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: `
+const completion = await openai.chat.completions.create({
+  model: "gpt-4o-mini",
+  messages: [
+    {
+      role: "system",
+      content: `
 Ти пояснюєш одну новину для голосового асистента.
 
 Відповідай українською.
@@ -501,22 +501,21 @@ if (!selected.text || !selected.text.trim()) {
 До 4 коротких речень.
 Без води.
 `
-`
-        },
-        {
-          role: "user",
-          content: `[${selected.chat}] ${selected.text}`
-        }
-      ]
-    });
+    },
+    {
+      role: "user",
+      content: `[${selected.chat}] ${selected.text}`
+    }
+  ]
+});
 
-    const detail = (completion?.choices?.[0]?.message?.content || "")
-      .trim()
-      .slice(0, 900);
+const detail = (completion?.choices?.[0]?.message?.content || "")
+  .trim()
+  .slice(0, 900);
 
-    res.json({
-      detail: detail || "Не вдалося пояснити цю новину."
-    });
+res.json({
+  detail: detail || "Не вдалося пояснити цю новину."
+});
 
   } catch (e) {
     console.error("TELEGRAM NEWS DETAIL ERROR:", e);
