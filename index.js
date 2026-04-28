@@ -5,6 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import cryptoRoutes from "./cryptoRoutes.js";
 import weatherRoutes from "./weatherRoutes.js";
+import workuaRoutes from "./workuaRoutes.js";
 
 import {
   startTelegram,
@@ -37,6 +38,7 @@ app.use((req, res, next) => {
 
 app.use("/crypto", cryptoRoutes);
 app.use("/weather", weatherRoutes);
+app.use("/workua", workuaRoutes);
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
