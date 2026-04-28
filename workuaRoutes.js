@@ -5,37 +5,41 @@ const router = express.Router();
 
 function buildHumanText(emails) {
   if (!emails.length) {
-    return "Нових оновлень по резюме немає.";
+    return "Нових листів від Work.ua за останні 7 днів немає.";
   }
 
-  let text = "Є оновлення по вашим резюме. ";
-
-  let androidViews = 0;
-  let horecaViews = 0;
+  let androidCount = 0;
+  let horecaCount = 0;
+  let unknownCount = 0;
 
   for (const email of emails) {
-    if (email.resume.includes("Android")) {
-      androidViews++;
+    if (email.resume === "Android / AI Developer") {
+      androidCount++;
+    } else if (email.resume === "Менеджер HoReCa") {
+      horecaCount++;
+    } else {
+      unknownCount++;
     }
-
-    if (email.resume.includes("HoReCa")) {
-      horecaViews++;
-    }
   }
 
-  if (androidViews > 0) {
-    text += `Android резюме переглянули ${androidViews} раз. `;
+  let text = "Є оновлення по Work.ua. ";
+
+  if (androidCount > 0) {
+    text += `По Android / AI резюме є ${androidCount} нових подій. `;
   }
 
-  if (horecaViews > 0) {
-    text += `По HoReCa є ${horecaViews} переглядів. `;
+  if (horecaCount > 0) {
+    text += `По HoReCa резюме є ${horecaCount} нових подій. `;
   }
 
-  // 🔥 проста аналітика
-  if (horecaViews > androidViews) {
-    text += "Поки що більше відгуку на попередній досвід.";
-  } else if (androidViews > 0) {
-    text += "Є інтерес до IT напрямку, варто продовжувати.";
+  if (unknownCount > 0) {
+    text += `Ще ${unknownCount} подій не вдалося прив’язати до конкретного резюме. `;
+  }
+
+  if (androidCount > 0 && horecaCount > androidCount) {
+    text += "Поки що більше активності по HoReCa.";
+  } else if (androidCount > 0) {
+    text += "Є активність по IT-напрямку, варто продовжувати відгуки.";
   }
 
   return text.trim();
@@ -44,16 +48,21 @@ function buildHumanText(emails) {
 router.get("/", async (req, res) => {
   try {
     const emails = await getWorkUaEmails();
-    const summary = buildHumanText(emails);
+    const text = buildHumanText(emails);
 
     res.json({
-      text: summary
+      ok: true,
+      count: emails.length,
+      text,
+      emails
     });
-  } catch (e) {
-    console.error("WORKUA ERROR:", e);
+  } catch (error) {
+    console.error("WORKUA ROUTE ERROR:", error);
 
     res.status(500).json({
-      text: "Не вдалося отримати оновлення Work.ua"
+      ok: false,
+      text: "Не вдалося отримати оновлення Work.ua.",
+      error: error?.message || "Unknown error"
     });
   }
 });
