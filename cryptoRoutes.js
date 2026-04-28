@@ -8,7 +8,7 @@ const openai = new OpenAI({
   timeout: 20000,
 });
 
-// 🔥 ТІЛЬКИ ТВОЇ МОНЕТИ
+// 🔥 МОНЕТИ
 const DEFAULT_SYMBOLS = ["BTC", "ETH", "SOL", "AVAX", "LTC"];
 
 const COINS = {
@@ -19,24 +19,61 @@ const COINS = {
   LTC: "litecoin",
 };
 
+// 🔥 Назви для голосу
+const nameMap = {
+  BTC: "Біткоїн",
+  ETH: "Ефір",
+  SOL: "Солана",
+  AVAX: "Avalanche",
+  LTC: "Litecoin"
+};
+
 // кеш
 const cache = new Map();
-const CACHE_TTL = 60 * 1000;
+const CACHE_TTL = 10 * 60 * 1000;
 
-// 🔹 отримання цін
+// =====================
+// 🔹 FETCH PRICES (FIXED)
+// =====================
 async function fetchPrices(symbols) {
-  const ids = symbols.map((s) => COINS[s]).join(",");
+  const ids = symbols
+    .map((s) => COINS[s])
+    .filter(Boolean)
+    .join(",");
 
-  const url = `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`;
+  const cacheKey = `coingecko:${ids}`;
+  const cached = cache.get(cacheKey);
+
+  if (cached && Date.now() - cached.time < CACHE_TTL) {
+    return cached.data;
+  }
+
+  const url =
+    `https://api.coingecko.com/api/v3/simple/price` +
+    `?ids=${ids}` +
+    `&vs_currencies=usd` +
+    `&include_24hr_change=true`;
 
   const response = await fetch(url);
 
   if (!response.ok) {
+    if (response.status === 429) {
+      if (cached) return cached.data;
+      throw new Error("COINGECKO_RATE_LIMIT");
+    }
+
     const text = await response.text();
     throw new Error(`CoinGecko ${response.status}: ${text}`);
   }
 
-  return response.json();
+  const data = await response.json();
+
+  cache.set(cacheKey, {
+    data,
+    time: Date.now(),
+  });
+
+  return data;
 }
 
 // =====================
@@ -60,32 +97,31 @@ router.get("/price", async (req, res) => {
 
     const change = Number(coin?.usd_24h_change?.toFixed(2) || 0);
 
-    const nameMap = {
-  BTC: "Біткоїн",
-  ETH: "Ефір",
-  SOL: "Солана",
-  AVAX: "Avalanche",
-  LTC: "Litecoin"
-};
     const result = {
-  symbol,
-  priceUsd: coin.usd,
-  change24h: change,
-  text: `${nameMap[symbol] || symbol} зараз ${coin.usd}$, ${
-    change >= 0 ? "плюс" : "мінус"
-  } ${Math.abs(change)}%. Це не інвестпорада.`,
-  cached: false,
-};
+      symbol,
+      priceUsd: coin.usd,
+      change24h: change,
+      text: `${nameMap[symbol] || symbol} зараз ${coin.usd}$, ${
+        change >= 0 ? "плюс" : "мінус"
+      } ${Math.abs(change)}%. Це не інвестпорада.`,
+      cached: false,
+    };
+
     cache.set(`price:${symbol}`, { data: result, time: Date.now() });
 
     res.json(result);
   } catch (e) {
-    res.status(500).json({ error: "price error", details: e.message });
+    const text =
+      e.message === "COINGECKO_RATE_LIMIT"
+        ? "Крипто API тимчасово обмежив запити. Спробуй пізніше."
+        : "Не вдалося отримати курс.";
+
+    res.status(200).json({ text, error: "price error" });
   }
 });
 
 // =====================
-// 🔹 SUMMARY (FIXED)
+// 🔹 SUMMARY
 // =====================
 router.get("/summary", async (req, res) => {
   try {
@@ -106,21 +142,15 @@ router.get("/summary", async (req, res) => {
       };
     });
 
-    // 🔥 ФІКС: додаємо ціну
     const text =
       coins
         .map(
           (c) =>
-            `${c.symbol} зараз ${c.priceUsd}$, ${
-              c.change24h >= 0 ? "плюс" : "мінус"
-            } ${Math.abs(c.change24h)}%`
+            `${nameMap[c.symbol] || c.symbol} ${c.priceUsd}$, ${
+              c.change24h >= 0 ? "+" : "-"
+            }${Math.abs(c.change24h)}%`
         )
-        .join(". ") +
-      `. Ринок ${
-        coins.filter((c) => c.change24h > 0).length >= 3
-          ? "переважно росте"
-          : "змішаний"
-      }. Це не інвестпорада.`;
+        .join(". ") + ".";
 
     const result = { coins, text, cached: false };
 
@@ -128,37 +158,21 @@ router.get("/summary", async (req, res) => {
 
     res.json(result);
   } catch (e) {
-    res.status(500).json({ error: "summary error", details: e.message });
+    res.status(200).json({
+      text: "Не вдалося отримати крипто ціни.",
+      error: "summary error",
+    });
   }
 });
 
 // =====================
-// 🔹 COMPARE (GPT)
+// 🔹 COMPARE
 // =====================
 router.get("/compare", async (req, res) => {
   try {
-    const symbolsParam = String(req.query.symbols || "").toUpperCase();
+    const data = await fetchPrices(DEFAULT_SYMBOLS);
 
-    const symbols = symbolsParam
-      ? symbolsParam.split(",").map((s) => s.trim())
-      : DEFAULT_SYMBOLS;
-
-    const valid = symbols.filter((s) => COINS[s]);
-
-    if (valid.length < 2) {
-      return res.status(400).json({ error: "Need 2+ symbols" });
-    }
-
-    const cacheKey = `compare:${valid.join(",")}`;
-    const cached = cache.get(cacheKey);
-
-    if (cached && Date.now() - cached.time < CACHE_TTL) {
-      return res.json({ ...cached.data, cached: true });
-    }
-
-    const data = await fetchPrices(valid);
-
-    const coins = valid.map((s) => {
+    const coins = DEFAULT_SYMBOLS.map((s) => {
       const c = data[COINS[s]];
       return {
         symbol: s,
@@ -169,54 +183,16 @@ router.get("/compare", async (req, res) => {
 
     const best = [...coins].sort((a, b) => b.change24h - a.change24h)[0];
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "Ти крипто-аналітик для голосового асистента. Коротко, по ділу, без гарантій. Завжди додавай: Це не інвестпорада.",
-        },
-        {
-          role: "user",
-          content: `
-Монети:
-
-${coins
-  .map(
-    (c) =>
-      `${c.symbol}: ціна ${c.priceUsd}, зміна за 24г ${c.change24h}%`
-  )
-  .join("\n")}
-
-Скажи:
-- хто виглядає сильніше
-- чи варто заходити
-- ризики
-- короткий висновок
-
-Максимум 4 короткі речення.
-`,
-        },
-      ],
-    });
-
-    const text =
-      completion.choices?.[0]?.message?.content?.trim() ||
-      `${best.symbol} виглядає сильніше за динамікою. Ризик високий через волатильність. Заходити краще частинами. Це не інвестпорада.`;
-
-    const result = {
+    res.json({
       coins,
       best: best.symbol,
-      text,
-      cached: false,
-    };
-
-    cache.set(cacheKey, { data: result, time: Date.now() });
-
-    res.json(result);
+      text: `${nameMap[best.symbol]} виглядає сильніше за динамікою. Це не інвестпорада.`,
+    });
   } catch (e) {
-    res.status(500).json({ error: "compare error", details: e.message });
+    res.status(200).json({
+      text: "Не вдалося порівняти крипту.",
+      error: "compare error",
+    });
   }
 });
 
@@ -234,41 +210,16 @@ router.get("/analyze", async (req, res) => {
     const data = await fetchPrices([symbol]);
     const coin = data[COINS[symbol]];
 
-    const change = Number(coin?.usd_24h_change?.toFixed(2) || 0);
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content:
-            "Крипто-аналітик. Коротко: тренд, ризик, чи входити. Без гарантій. Завжди: Це не інвестпорада.",
-        },
-        {
-          role: "user",
-          content: `
-Монета: ${symbol}
-Ціна: ${coin.usd}
-Зміна: ${change}%
-
-Дай коротку відповідь.
-`,
-        },
-      ],
-    });
-
-    const text =
-      completion.choices?.[0]?.message?.content?.trim() ||
-      `${symbol} зараз ${coin.usd}$. Ризик високий. Це не інвестпорада.`;
-
     res.json({
       symbol,
       priceUsd: coin.usd,
-      change24h: change,
-      text,
+      text: `${nameMap[symbol]} зараз ${coin.usd}$. Ризик високий.`,
     });
   } catch (e) {
-    res.status(500).json({ error: "analyze error", details: e.message });
+    res.status(200).json({
+      text: "Не вдалося зробити аналіз.",
+      error: "analyze error",
+    });
   }
 });
 
