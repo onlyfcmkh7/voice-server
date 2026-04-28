@@ -9,10 +9,11 @@ const openai = new OpenAI({
 });
 
 // 🔥 ТІЛЬКИ ТВОЇ МОНЕТИ
-const DEFAULT_SYMBOLS = ["BTC", "SOL", "AVAX", "LTC"];
+const DEFAULT_SYMBOLS = ["BTC", "ETH", "SOL", "AVAX", "LTC"];
 
 const COINS = {
   BTC: "bitcoin",
+  ETH: "ethereum",
   SOL: "solana",
   AVAX: "avalanche-2",
   LTC: "litecoin",
@@ -59,16 +60,22 @@ router.get("/price", async (req, res) => {
 
     const change = Number(coin?.usd_24h_change?.toFixed(2) || 0);
 
+    const nameMap = {
+  BTC: "Біткоїн",
+  ETH: "Ефір",
+  SOL: "Солана",
+  AVAX: "Avalanche",
+  LTC: "Litecoin"
+};
     const result = {
-      symbol,
-      priceUsd: coin.usd,
-      change24h: change,
-      text: `${symbol} зараз ${coin.usd}$, ${
-        change >= 0 ? "плюс" : "мінус"
-      } ${Math.abs(change)}%. Це не інвестпорада.`,
-      cached: false,
-    };
-
+  symbol,
+  priceUsd: coin.usd,
+  change24h: change,
+  text: `${nameMap[symbol] || symbol} зараз ${coin.usd}$, ${
+    change >= 0 ? "плюс" : "мінус"
+  } ${Math.abs(change)}%. Це не інвестпорада.`,
+  cached: false,
+};
     cache.set(`price:${symbol}`, { data: result, time: Date.now() });
 
     res.json(result);
