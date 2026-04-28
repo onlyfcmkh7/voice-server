@@ -471,13 +471,19 @@ app.get("/telegram/news/detail", async (req, res) => {
       });
     }
 
-    const selected = lastNews[number - 1];
+   const selected = lastNews[number - 1];
 
-    if (!selected) {
-      return res.json({
-        detail: "Такої новини в останньому списку немає."
-      });
-    }
+if (!selected) {
+  return res.json({
+    detail: "Такої новини в останньому списку немає."
+  });
+}
+
+if (!selected.text || !selected.text.trim()) {
+  return res.json({
+    detail: "У цієї новини немає тексту."
+  });
+}
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
