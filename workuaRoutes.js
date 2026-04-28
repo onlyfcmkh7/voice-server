@@ -1,10 +1,17 @@
 import express from "express";
+import { getWorkUaEmails } from "./gmailClient.js";
 
 const router = express.Router();
 
 router.get("/", async (req, res) => {
+  const emails = await getWorkUaEmails();
+
+  const summary = emails
+    .map((email) => email.snippet)
+    .join(". ");
+
   res.json({
-    text: "Work.ua моніторинг підключено. Нових оновлень поки не перевіряю."
+    text: summary || "Нових оновлень Work.ua немає."
   });
 });
 
