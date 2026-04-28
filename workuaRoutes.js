@@ -5,42 +5,33 @@ const router = express.Router();
 
 function buildHumanText(emails) {
   if (!emails.length) {
-    return "Нових листів від Work.ua за останні 7 днів немає.";
+    return "Важливих оновлень від Work.ua немає.";
   }
 
-  let androidCount = 0;
-  let horecaCount = 0;
-  let unknownCount = 0;
-
-  for (const email of emails) {
-    if (email.resume === "Android / AI Developer") {
-      androidCount++;
-    } else if (email.resume === "Менеджер HoReCa") {
-      horecaCount++;
-    } else {
-      unknownCount++;
-    }
-  }
+  const jobOffers = emails.filter((email) => email.type === "job_offer");
+  const resumeViews = emails.filter((email) => email.type === "resume_view");
+  const messages = emails.filter((email) => email.type === "message");
+  const applicationViews = emails.filter((email) => email.type === "application_view");
 
   let text = "Є оновлення по Work.ua. ";
 
-  if (androidCount > 0) {
-    text += `По Android / AI резюме є ${androidCount} нових подій. `;
+  if (jobOffers.length > 0) {
+    text += `У вас ${jobOffers.length} непереглянуті пропозиції від роботодавців. `;
   }
 
-  if (horecaCount > 0) {
-    text += `По HoReCa резюме є ${horecaCount} нових подій. `;
+  if (resumeViews.length > 0) {
+    text += `Резюме переглядали ${resumeViews.length} разів. `;
   }
 
-  if (unknownCount > 0) {
-    text += `Ще ${unknownCount} подій не вдалося прив’язати до конкретного резюме. `;
+  if (messages.length > 0) {
+    text += `Є ${messages.length} нові повідомлення. `;
   }
 
-  if (androidCount > 0 && horecaCount > androidCount) {
-    text += "Поки що більше активності по HoReCa.";
-  } else if (androidCount > 0) {
-    text += "Є активність по IT-напрямку, варто продовжувати відгуки.";
+  if (applicationViews.length > 0) {
+    text += `Ваші відгуки переглянули ${applicationViews.length} разів. `;
   }
+
+  text += "Рекомендую зайти в кабінет Work.ua і перевірити деталі.";
 
   return text.trim();
 }
