@@ -45,7 +45,8 @@ function detectResume(text) {
   if (
     lower.includes("horeca") ||
     lower.includes("менеджер") ||
-    lower.includes("ресторан")
+    lower.includes("ресторан") ||
+    lower.includes("клієнтами")
   ) {
     return "Менеджер HoReCa";
   }
@@ -53,17 +54,66 @@ function detectResume(text) {
   return "Невідоме резюме";
 }
 
+function detectEventType(text) {
+  const lower = text.toLowerCase();
+
+  if (
+    lower.includes("пропозиція від роботодавця") ||
+    lower.includes("вам пропонують") ||
+    lower.includes("надіслали пропозицію") ||
+    lower.includes("пропонує вам роботу")
+  ) {
+    return "job_offer";
+  }
+
+  if (
+    lower.includes("роботодавець зацікавився") ||
+    lower.includes("зацікавився вашим резюме")
+  ) {
+    return "employer_interest";
+  }
+
+  if (
+    lower.includes("резюме переглянули") ||
+    lower.includes("переглянули ваше резюме") ||
+    lower.includes("ваше резюме переглянуто")
+  ) {
+    return "resume_view";
+  }
+
+  if (
+    lower.includes("відгук переглянуто") ||
+    lower.includes("ваш відгук переглянули") ||
+    lower.includes("роботодавець переглянув ваш відгук")
+  ) {
+    return "application_view";
+  }
+
+  if (
+    lower.includes("нове повідомлення") ||
+    lower.includes("вам написали") ||
+    lower.includes("повідомлення від роботодавця")
+  ) {
+    return "message";
+  }
+
+  return null;
+}
+
+function isImportantWorkUaEmail(text) {
+  return detectEventType(text) !== null;
+}
+
 export async function getWorkUaEmails() {
   const gmail = getGmailClient();
 
   const list = await gmail.users.messages.list({
     userId: "me",
-    maxResults: 10,
-    q: 'from:(work.ua) newer_than:7d'
+    maxResults: 20,
+    q: 'from:(work.ua) newer_than:14d'
   });
 
   const messages = list.data.messages || [];
-
   const emails = [];
 
   for (const message of messages) {
@@ -82,9 +132,14 @@ export async function getWorkUaEmails() {
 
     const text = `${subject} ${snippet}`;
 
+    if (!isImportantWorkUaEmail(text)) {
+      continue;
+    }
+
     emails.push({
       id: message.id,
       resume: detectResume(text),
+      type: detectEventType(text),
       subject,
       from,
       date,
