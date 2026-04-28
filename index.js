@@ -15,6 +15,26 @@ const app = express();
 const upload = multer({ dest: 'uploads/' });
 
 app.use(express.json());
+
+// анти-спам для частих однакових запитів
+const lastRequests = new Map();
+
+app.use((req, res, next) => {
+  const key = req.ip + req.method + req.path;
+  const now = Date.now();
+
+  const lastTime = lastRequests.get(key) || 0;
+
+  if (now - lastTime < 1000) {
+    return res.status(200).json({
+      text: "Занадто часті запити. Спробуй ще раз за секунду.",
+    });
+  }
+
+  lastRequests.set(key, now);
+  next();
+});
+
 app.use("/crypto", cryptoRoutes);
 app.use("/weather", weatherRoutes);
 
@@ -505,7 +525,12 @@ app.get("/telegram/news/detail", async (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 console.log("STARTING TELEGRAM...");
-startTelegram();
+
+try {
+  startTelegram();
+} catch (e) {
+  console.error("TELEGRAM START ERROR:", e);
+}
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
