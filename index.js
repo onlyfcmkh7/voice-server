@@ -491,7 +491,6 @@ if (!selected.text || !selected.text.trim()) {
         {
           role: "system",
           content: `
-content: `
 Ти пояснюєш одну новину для голосового асистента.
 
 Відповідай українською.
